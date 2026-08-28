@@ -1,0 +1,8 @@
+{
+  "name": "solarbridge-card",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {"test":"node --test","check":"node --check solarbridge-card.js && node --check helpers.js"},
+  "engines": {"node": ">=20"},
+  "license": "MIT"
+}
