@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 18px; background: var(--page-background); }
+      solarbridge-card { width: 100%; max-width: 500px; }
+      #result { display: none; }
+    </style>
+  </head>
+  <body>
+    <solarbridge-card></solarbridge-card>
+    <pre id="result">pending</pre>
+    <script type="module">
+      import "../solarbridge-card.js";
+
+      const dark = new URLSearchParams(location.search).get("theme") === "dark";
+      const theme = dark ? {
+        "--page-background": "#111111",
+        "--ha-card-background": "#1c1c1c",
+        "--card-background-color": "#1c1c1c",
+        "--primary-text-color": "#f1f1f1",
+        "--secondary-text-color": "#b8b8b8",
+        "--primary-color": "#03a9f4",
+      } : {
+        "--page-background": "#f2f4f5",
+        "--ha-card-background": "#ffffff",
+        "--card-background-color": "#ffffff",
+        "--primary-text-color": "#212121",
+        "--secondary-text-color": "#5f6368",
+        "--primary-color": "#0288d1",
+      };
+      for (const [name, value] of Object.entries(theme)) document.documentElement.style.setProperty(name, value);
+
+      const ids = ["pv", "inverter", "battery", "soc", "load", "grid", "solar_day", "load_day", "import_day", "export_day"];
+      const config = {
+        title: "Solar power flow", pv_power: "sensor.pv", inverter_power: "sensor.inverter",
+        battery_power: "sensor.battery", battery_soc: "sensor.soc", load_power: "sensor.load",
+        grid_power: "sensor.grid", daily_solar: "sensor.solar_day", daily_load: "sensor.load_day",
+        daily_grid_import: "sensor.import_day", daily_grid_export: "sensor.export_day",
+      };
+      const values = [570, 570, -208, 11, 383, 52, 0, 2.3, 2.6, 0];
+      const states = Object.fromEntries(ids.map((id, index) => [`sensor.${id}`, { state: String(values[index]) }]));
+      const card = document.querySelector("solarbridge-card");
+      card.setConfig(config);
+      card.hass = { states, callApi: async () => [], callWS: async () => ({}) };
+
+      function rgb(value) {
+        const numbers = value.match(/[\d.]+/g)?.map(Number) || [];
+        if (value.startsWith("color(srgb")) return numbers.slice(0, 3).map(channel => channel * 255);
+        return numbers.slice(0, 3);
+      }
+      function luminance(color) {
+        return rgb(color).map(channel => channel / 255).map(channel => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4)
+          .reduce((sum, channel, index) => sum + channel * [.2126, .7152, .0722][index], 0);
+      }
+      function contrast(foreground, background) {
+        const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
+        return (values[0] + .05) / (values[1] + .05);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const root = card.shadowRoot;
+      const summaries = [...root.querySelectorAll(".summary div")];
+      const lines = [...root.querySelectorAll(".line")];
+      const summaryBackground = getComputedStyle(summaries[0]).backgroundColor;
+      const labelContrast = contrast(getComputedStyle(summaries[0].querySelector("small")).color, summaryBackground);
+      const valueContrast = contrast(getComputedStyle(summaries[0].querySelector("b")).color, summaryBackground);
+      const animationNames = lines.map(line => getComputedStyle(line.querySelector("i")).animationName);
+      const animationOffsets = [...root.querySelector("style").textContent.matchAll(/@keyframes flow-(?:forward|reverse)\{to\{background-position:(-?\d+)px/g)].map(match => Number(match[1]));
+      const pulseBackgrounds = lines.map(line => getComputedStyle(line.querySelector("i")).backgroundImage);
+      const pulseWidths = lines.map(line => [line.clientWidth, line.querySelector("i").clientWidth]);
+      const summaryColumns = new Set(summaries.map(item => Math.round(item.getBoundingClientRect().left))).size;
+      const hostWidth = Math.round(card.getBoundingClientRect().width);
+      const tests = {
+        labelContrast: labelContrast >= 4.5,
+        valueContrast: valueContrast >= 4.5,
+        expectedDirections: animationNames.join(",") === "flow-forward,flow-reverse,flow-reverse,flow-forward",
+        seamlessLoopOffset: animationOffsets.join(",") === "68,-68" && animationOffsets.every(offset => Math.abs(offset) % 34 === 0),
+        seamlessPattern: pulseBackgrounds.every(value => value.includes("repeating-linear-gradient")),
+        fullConnectorPulse: pulseWidths.every(([line, pulse]) => line === pulse),
+        responsiveColumns: summaryColumns === (innerWidth <= 450 ? 2 : 4),
+        noHorizontalOverflow: root.querySelector("ha-card").scrollWidth <= hostWidth,
+      };
+      document.querySelector("#result").textContent = JSON.stringify({
+        theme: dark ? "dark" : "light", width: innerWidth, tests,
+        contrast: { label: labelContrast.toFixed(2), value: valueContrast.toFixed(2) }, animationOffsets,
+      });
+    </script>
+  </body>
+</html>
