@@ -32,25 +32,27 @@ test("renders accessibly in light/dark themes at desktop/mobile sizes", async ()
   const output = await mkdtemp(join(tmpdir(), "solarbridge-render-"));
 
   try {
-    for (const theme of ["light", "dark"]) {
-      for (const [width, height] of [[554, 650], [390, 720]]) {
-        const url = `http://127.0.0.1:${port}/test/render-fixture.html?theme=${theme}`;
-        const common = ["--headless", "--no-sandbox", "--disable-gpu", `--window-size=${width},${height}`, "--hide-scrollbars", "--virtual-time-budget=1000"];
-        const { stdout } = await execFileAsync(chrome, [...common, "--dump-dom", url], { maxBuffer: 2 ** 20 });
-        const match = stdout.match(/<pre id="result">([^<]+)<\/pre>/);
-        assert.ok(match, `render results exist for ${theme} at ${width}px`);
-        const result = JSON.parse(match[1].replaceAll("&quot;", '"'));
-        assert.deepEqual(Object.entries(result.tests).filter(([, passed]) => !passed), [], JSON.stringify(result));
+    for (const view of ["overview", "system"]) {
+      for (const theme of ["light", "dark"]) {
+        for (const [width, height] of [[554, 900], [390, 1200]]) {
+          const url = `http://127.0.0.1:${port}/test/render-fixture.html?theme=${theme}&view=${view}`;
+          const common = ["--headless", "--no-sandbox", "--disable-gpu", `--window-size=${width},${height}`, "--hide-scrollbars", "--virtual-time-budget=1000"];
+          const { stdout } = await execFileAsync(chrome, [...common, "--dump-dom", url], { maxBuffer: 2 ** 20 });
+          const match = stdout.match(/<pre id="result">([^<]+)<\/pre>/);
+          assert.ok(match, `render results exist for ${view}, ${theme} at ${width}px`);
+          const result = JSON.parse(match[1].replaceAll("&quot;", '"'));
+          assert.deepEqual(Object.entries(result.tests).filter(([, passed]) => !passed), [], JSON.stringify(result));
 
-        const screenshot = join(output, `${theme}-${width}.png`);
-        await execFileAsync(chrome, [...common, `--screenshot=${screenshot}`, url]);
-        const png = await readFile(screenshot);
-        assert.equal(png.subarray(1, 4).toString(), "PNG");
-        assert.ok(png.length > 10_000, `non-empty ${theme} ${width}px visual render`);
+          const screenshot = join(output, `${view}-${theme}-${width}.png`);
+          await execFileAsync(chrome, [...common, `--screenshot=${screenshot}`, url]);
+          const png = await readFile(screenshot);
+          assert.equal(png.subarray(1, 4).toString(), "PNG");
+          assert.ok(png.length > 10_000, `non-empty ${view} ${theme} ${width}px visual render`);
+        }
       }
     }
 
-    const reducedUrl = `http://127.0.0.1:${port}/test/render-fixture.html?theme=dark`;
+    const reducedUrl = `http://127.0.0.1:${port}/test/render-fixture.html?theme=dark&view=system`;
     const reducedArgs = ["--headless", "--no-sandbox", "--disable-gpu", "--window-size=390,720", "--force-prefers-reduced-motion", "--virtual-time-budget=1000", "--dump-dom", reducedUrl];
     const { stdout } = await execFileAsync(chrome, reducedArgs, { maxBuffer: 2 ** 20 });
     const match = stdout.match(/<pre id="result">([^<]+)<\/pre>/);
