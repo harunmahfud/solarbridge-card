@@ -40,7 +40,7 @@
         grid_power: "sensor.grid", daily_solar: "sensor.solar_day", daily_load: "sensor.load_day",
         daily_grid_import: "sensor.import_day", daily_grid_export: "sensor.export_day",
       };
-      const values = [570, 570, -208, 11, 383, 52, 0, 2.3, 2.6, 0];
+      const values = [570, 570, -859, 15, 383, 52, 0, 2.3, 2.6, 0];
       const states = Object.fromEntries(ids.map((id, index) => [`sensor.${id}`, { state: String(values[index]) }]));
       const card = document.querySelector("solarbridge-card");
       card.setConfig(config);
@@ -73,6 +73,7 @@
       const pulseWidths = lines.map(line => [line.clientWidth, line.querySelector("i").clientWidth]);
       const summaryColumns = new Set(summaries.map(item => Math.round(item.getBoundingClientRect().left))).size;
       const hostWidth = Math.round(card.getBoundingClientRect().width);
+      const battery = root.querySelector(".battery");
       const tests = {
         labelContrast: labelContrast >= 4.5,
         valueContrast: valueContrast >= 4.5,
@@ -82,6 +83,7 @@
         fullConnectorPulse: pulseWidths.every(([line, pulse]) => line === pulse),
         responsiveColumns: summaryColumns === (innerWidth <= 450 ? 2 : 4),
         noHorizontalOverflow: root.querySelector("ha-card").scrollWidth <= hostWidth,
+        batteryValueContained: battery.scrollWidth <= battery.clientWidth,
       };
       document.querySelector("#result").textContent = JSON.stringify({
         theme: dark ? "dark" : "light", width: innerWidth, tests,
