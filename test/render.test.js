@@ -49,6 +49,14 @@ test("renders accessibly in light/dark themes at desktop/mobile sizes", async ()
         assert.ok(png.length > 10_000, `non-empty ${theme} ${width}px visual render`);
       }
     }
+
+    const reducedUrl = `http://127.0.0.1:${port}/test/render-fixture.html?theme=dark`;
+    const reducedArgs = ["--headless", "--no-sandbox", "--disable-gpu", "--window-size=390,720", "--force-prefers-reduced-motion", "--virtual-time-budget=1000", "--dump-dom", reducedUrl];
+    const { stdout } = await execFileAsync(chrome, reducedArgs, { maxBuffer: 2 ** 20 });
+    const match = stdout.match(/<pre id="result">([^<]+)<\/pre>/);
+    assert.ok(match, "reduced-motion render results exist");
+    const result = JSON.parse(match[1].replaceAll("&quot;", '"'));
+    assert.deepEqual(Object.entries(result.tests).filter(([, passed]) => !passed), [], JSON.stringify(result));
   } finally {
     server.closeAllConnections();
     await new Promise(resolveClosed => server.close(resolveClosed));

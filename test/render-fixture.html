@@ -20,6 +20,12 @@
       }
       customElements.define("ha-entity-picker", FakeEntityPicker);
       await import("../solarbridge-card.js");
+      const playbackRateRequests = new WeakMap();
+      const updatePlaybackRate = Animation.prototype.updatePlaybackRate;
+      Animation.prototype.updatePlaybackRate = function(rate) {
+        playbackRateRequests.set(this, rate);
+        return updatePlaybackRate.call(this, rate);
+      };
 
       const dark = new URLSearchParams(location.search).get("theme") === "dark";
       const theme = dark ? {
@@ -48,9 +54,16 @@
       };
       const values = [570, 570, -859, 15, 383, 52, 0, 2.3, 2.6, 0];
       const states = Object.fromEntries(ids.map((id, index) => [`sensor.${id}`, { state: String(values[index]) }]));
+      let resolveHistory;
+      const history = new Promise(resolve => { resolveHistory = resolve; });
+      const makeHass = overrides => ({
+        states: { ...states, ...overrides },
+        callApi: async () => history,
+        callWS: async () => ({}),
+      });
       const card = document.querySelector("solarbridge-card");
       card.setConfig(config);
-      card.hass = { states, callApi: async () => [], callWS: async () => ({}) };
+      card.hass = makeHass();
       const editor = document.querySelector("solarbridge-card-editor");
       editor.setConfig(config);
       editor.hass = { states };
@@ -77,27 +90,78 @@
       const root = card.shadowRoot;
       const summaries = [...root.querySelectorAll(".summary div")];
       const lines = [...root.querySelectorAll(".line")];
+      const pulses = lines.map(line => line.querySelector("i"));
+      const animations = pulses.map(pulse => pulse.getAnimations()[0]);
       const summaryBackground = getComputedStyle(summaries[0]).backgroundColor;
       const labelContrast = contrast(getComputedStyle(summaries[0].querySelector("small")).color, summaryBackground);
       const valueContrast = contrast(getComputedStyle(summaries[0].querySelector("b")).color, summaryBackground);
-      const animationNames = lines.map(line => getComputedStyle(line.querySelector("i")).animationName);
-      const animationOffsets = [...root.querySelector("style").textContent.matchAll(/@keyframes flow-(?:forward|reverse)\{to\{background-position:(-?\d+)px/g)].map(match => Number(match[1]));
+      const animationOffsets = [...root.querySelector("style").textContent.matchAll(/@keyframes flow\{to\{background-position:(-?\d+)px/g)].map(match => Number(match[1]));
       const pulseBackgrounds = lines.map(line => getComputedStyle(line.querySelector("i")).backgroundImage);
       const pulseWidths = lines.map(line => [line.clientWidth, line.querySelector("i").clientWidth]);
       const summaryColumns = new Set(summaries.map(item => Math.round(item.getBoundingClientRect().left))).size;
       const hostWidth = Math.round(card.getBoundingClientRect().width);
       const battery = root.querySelector(".battery");
+      const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const lifecycle = {};
+
+      if (reducedMotion) {
+        card.hass = makeHass({ "sensor.pv": { state: "0.5" } });
+        const inactive = getComputedStyle(pulses[0]).visibility === "hidden";
+        card.hass = makeHass({ "sensor.pv": { state: "1200" } });
+        lifecycle.reducedMotion = animations.every(animation => animation == null)
+          && inactive && getComputedStyle(pulses[0]).visibility === "visible";
+      } else {
+        const beforeRefresh = animations.map(animation => animation.currentTime);
+        card.hass = makeHass({ "sensor.load_day": { state: "2.4" } });
+        lifecycle.refreshIdentity = lines.every((line, index) => root.querySelectorAll(".line")[index] === line)
+          && pulses.every((pulse, index) => root.querySelectorAll(".line i")[index] === pulse)
+          && animations.every((animation, index) => pulses[index].getAnimations()[0] === animation);
+        lifecycle.refreshContinuity = animations.every((animation, index) => Math.abs(animation.currentTime - beforeRefresh[index]) < 20);
+
+        const pvAnimation = animations[0];
+        const beforeSpeed = pvAnimation.currentTime;
+        card.hass = makeHass({ "sensor.pv": { state: "1200" } });
+        lifecycle.speedPhaseContinuous = pvAnimation === pulses[0].getAnimations()[0]
+          && Math.abs(pvAnimation.currentTime - beforeSpeed) < 20;
+        await new Promise(resolve => setTimeout(resolve, 100));
+        lifecycle.speedChanged = Math.abs(playbackRateRequests.get(pvAnimation) - (1 / 1.5)) < .001;
+
+        const beforeReverse = pvAnimation.currentTime;
+        card.hass = makeHass({ "sensor.pv": { state: "-1200" } });
+        const reversePhaseDelta = Math.abs((pvAnimation.currentTime % 1000) - (beforeReverse % 1000));
+        lifecycle.reversePhaseContinuous = pvAnimation === pulses[0].getAnimations()[0]
+          && Math.min(reversePhaseDelta, 1000 - reversePhaseDelta) < 20;
+        await new Promise(resolve => setTimeout(resolve, 100));
+        lifecycle.directionChanged = playbackRateRequests.get(pvAnimation) < 0;
+
+        card.hass = makeHass({ "sensor.pv": { state: "0.5" } });
+        const inactive = getComputedStyle(pulses[0]).visibility === "hidden";
+        card.hass = makeHass({ "sensor.pv": { state: "100" } });
+        lifecycle.activeThreshold = inactive && getComputedStyle(pulses[0]).visibility === "visible"
+          && pulses[0].getAnimations()[0] === pvAnimation;
+
+        const beforeHistory = animations.map(animation => animation.currentTime);
+        resolveHistory([{ state: "10" }, { state: "15" }]);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        lifecycle.historyIdentity = animations.every((animation, index) => pulses[index].getAnimations()[0] === animation)
+          && animations.some((animation, index) => animation.currentTime !== beforeHistory[index]);
+
+        card.setConfig({ ...config, title: "Updated solar power flow" });
+        lifecycle.configIdentity = animations.every((animation, index) => pulses[index].getAnimations()[0] === animation)
+          && root.querySelector("h2").textContent === "Updated solar power flow";
+      }
       const tests = {
         labelContrast: labelContrast >= 4.5,
         valueContrast: valueContrast >= 4.5,
-        expectedDirections: animationNames.join(",") === "flow-forward,flow-reverse,flow-reverse,flow-forward",
-        seamlessLoopOffset: animationOffsets.join(",") === "68,-68" && animationOffsets.every(offset => Math.abs(offset) % 34 === 0),
+        expectedDirections: reducedMotion || animations.map(animation => Math.sign(playbackRateRequests.get(animation))).join(",") === "1,-1,-1,1",
+        seamlessLoopOffset: animationOffsets.join(",") === "68" && animationOffsets.every(offset => Math.abs(offset) % 34 === 0),
         seamlessPattern: pulseBackgrounds.every(value => value.includes("repeating-linear-gradient")),
         fullConnectorPulse: pulseWidths.every(([line, pulse]) => line === pulse),
         responsiveColumns: summaryColumns === (innerWidth <= 450 ? 2 : 4),
         noHorizontalOverflow: root.querySelector("ha-card").scrollWidth <= hostWidth,
         batteryValueContained: battery.scrollWidth <= battery.clientWidth,
         editorDropdownPreserved: editor.querySelector("ha-entity-picker") === openPicker && openPicker.menuOpen && document.activeElement === openPicker,
+        ...lifecycle,
       };
       document.querySelector("#result").textContent = JSON.stringify({
         theme: dark ? "dark" : "light", width: innerWidth, tests,
