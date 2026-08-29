@@ -6,14 +6,20 @@
       * { box-sizing: border-box; }
       body { margin: 0; padding: 18px; background: var(--page-background); }
       solarbridge-card { width: 100%; max-width: 500px; }
+      solarbridge-card-editor { position: fixed; left: -10000px; }
       #result { display: none; }
     </style>
   </head>
   <body>
     <solarbridge-card></solarbridge-card>
+    <solarbridge-card-editor></solarbridge-card-editor>
     <pre id="result">pending</pre>
     <script type="module">
-      import "../solarbridge-card.js";
+      class FakeEntityPicker extends HTMLElement {
+        connectedCallback() { this.tabIndex = 0; }
+      }
+      customElements.define("ha-entity-picker", FakeEntityPicker);
+      await import("../solarbridge-card.js");
 
       const dark = new URLSearchParams(location.search).get("theme") === "dark";
       const theme = dark ? {
@@ -45,6 +51,13 @@
       const card = document.querySelector("solarbridge-card");
       card.setConfig(config);
       card.hass = { states, callApi: async () => [], callWS: async () => ({}) };
+      const editor = document.querySelector("solarbridge-card-editor");
+      editor.setConfig(config);
+      editor.hass = { states };
+      const openPicker = editor.querySelector("ha-entity-picker");
+      openPicker.menuOpen = true;
+      openPicker.focus();
+      editor.hass = { states: { ...states } };
 
       function rgb(value) {
         const numbers = value.match(/[\d.]+/g)?.map(Number) || [];
@@ -84,6 +97,7 @@
         responsiveColumns: summaryColumns === (innerWidth <= 450 ? 2 : 4),
         noHorizontalOverflow: root.querySelector("ha-card").scrollWidth <= hostWidth,
         batteryValueContained: battery.scrollWidth <= battery.clientWidth,
+        editorDropdownPreserved: editor.querySelector("ha-entity-picker") === openPicker && openPicker.menuOpen && document.activeElement === openPicker,
       };
       document.querySelector("#result").textContent = JSON.stringify({
         theme: dark ? "dark" : "light", width: innerWidth, tests,
