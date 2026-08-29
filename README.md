@@ -63,7 +63,9 @@ System detail fields are optional. See the [complete 72-entity audit](ENTITY_AUD
 for every supported mapping and the rationale for excluding identity, raw, and
 time-of-use setting entities.
 
-Positive/negative direction depends on the source integration's sign convention. If its convention differs, use a Home Assistant template sensor to invert that entity.
+The labels and animation directions follow the first-party SolarBridge sign
+contract documented below. If another integration uses different signs, use a
+Home Assistant template sensor to invert the affected entity.
 
 ## Data and calculations
 
@@ -79,7 +81,7 @@ verified aggregate PV power register.
 | Display | Configuration/input | Raw or calculated behavior |
 | --- | --- | --- |
 | Solar power | `pv_power` | Raw numeric entity state, assumed W; presentation formatting only. |
-| Inverter power | `inverter_power` | Raw numeric entity state, assumed W. If it is missing or non-numeric, the raw `pv_power` value is used as a fallback. |
+| Inverter power | `inverter_power` | Raw numeric entity state, assumed W. The raw `pv_power` value is used as a legacy fallback only when `inverter_power` is omitted. A configured inverter entity that is missing, empty, unknown, unavailable, or non-numeric displays as unavailable. |
 | Battery power | `battery_power` | Raw signed numeric entity state, assumed W; presentation formatting only. |
 | Home power | `load_power` | Raw numeric entity state, assumed W; presentation formatting only. |
 | Grid power | `grid_power` | Raw signed numeric entity state, assumed W; presentation formatting only. |
@@ -90,7 +92,27 @@ verified aggregate PV power register.
 | Imported today | `daily_grid_import` | Raw current numeric entity state, assumed kWh, rounded to one decimal. |
 | Exported today | `daily_grid_export` | Raw current numeric entity state, assumed kWh, rounded to one decimal. |
 
-Power presentation uses W rounded to the nearest whole number below 1000 W. Values with an absolute magnitude of at least 1000 W are divided by 1000 and shown in kW with one decimal. Missing, unavailable, or otherwise non-numeric states display `—`.
+Power presentation uses W rounded to the nearest whole number below 1000 W. Values with an absolute magnitude of at least 1000 W are divided by 1000 and shown in kW with one decimal. Missing, empty (including whitespace-only), unavailable, or otherwise non-numeric states display `—`.
+
+### Power signs and status labels
+
+For entities from `ha-solarbridge`, the card interprets raw power states as
+follows. Values with an absolute magnitude below 1 W use the zero/near-zero
+label and hide the moving stripe.
+
+| Node | Positive value | Negative value | Zero/near-zero |
+| --- | --- | --- | --- |
+| Solar | Generating; solar → inverter | Reverse flow; inverter → solar | Idle |
+| Inverter | Supplying AC | Absorbing AC | Standby |
+| Grid | Importing; grid → inverter | Exporting; inverter → grid | Idle |
+| Battery | Discharging; battery → inverter | Charging; inverter → battery | Idle |
+| Home/load | Consuming; inverter → home | Reverse flow; home → inverter | Idle |
+
+`Supplying` deliberately does not imply that the inverter's energy came from
+PV: it may be converting battery power or passing through grid power. Missing
+values are labelled **Unavailable**. These labels describe the same raw signs
+already used by the connector animation; no displayed value or animation
+direction is sign-adjusted.
 
 Flow animation is derived from each raw power value:
 
@@ -100,12 +122,8 @@ Flow animation is derived from each raw power value:
 - These signs control animation only. Displayed signed values are not adjusted.
 - Reduced-motion preferences disable the moving pattern while preserving the line's active/inactive indication.
 
-System detail also labels each topology node with an explicit state. Values
-below 1 W are **Idle**, missing values are **Unavailable**, and active signed
-values are described as Generating/Reverse flow, Producing/Reverse flow,
-Importing/Exporting, Charging/Discharging, or Consuming/Reverse flow according
-to the node. These labels follow the same sign convention as the animation and
-do not transform the displayed power.
+System detail displays the status labels from the sign table above. Overview
+keeps those labels hidden while using the same values and animation rules.
 
 The four daily entities should already represent today's accumulating totals and reset according to their source integration. The card performs no summing, subtraction, normalization, sign adjustment, or unit conversion on them.
 
