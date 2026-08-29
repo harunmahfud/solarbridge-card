@@ -86,6 +86,7 @@ class SolarBridgeCard extends HTMLElement {
     const soc = this.value("battery_soc");
     const load = this.value("load_power");
     const grid = this.value("grid_power");
+    const batteryValue = `<span class="battery-soc">${soc ?? "—"}% <span aria-hidden="true">·</span></span><span>${formatPower(battery)}</span>`;
     const flow = (kind, name, value, reverse = false) => {
       const active = value != null && Math.abs(value) >= 1;
       const backwards = active && ((value < 0) !== reverse);
@@ -99,6 +100,7 @@ class SolarBridgeCard extends HTMLElement {
       h2{font-size:20px;margin:0 0 18px}.flow{display:grid;grid-template-columns:1fr 54px 1fr 54px 1fr;grid-template-rows:auto 54px auto;align-items:center;gap:4px}
       .node{min-width:0;text-align:center;padding:12px 5px;border:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent);border-radius:16px;background:color-mix(in srgb,var(--sb-text) 9%,var(--sb-surface));box-shadow:0 8px 25px #0001}
       .node b,.node strong{display:block;white-space:nowrap}.node b{font-size:12px;color:var(--sb-muted);margin:3px}.node strong{font-size:16px}.icon{font-size:25px}.pv{grid-column:1}.inverter{grid-column:3}.grid{grid-column:5}.battery{grid-column:1;grid-row:3}.load{grid-column:5;grid-row:3}
+      .battery strong{display:flex;flex-wrap:wrap;justify-content:center;column-gap:.25em;white-space:normal}.battery strong>span{white-space:nowrap}
       .line{height:4px;position:relative;background:color-mix(in srgb,var(--sb-text) 22%,var(--sb-surface));border-radius:5px;overflow:hidden}.line i{display:none;position:absolute;inset:0;border-radius:inherit;background:repeating-linear-gradient(90deg,var(--sb-accent) 0 14px,transparent 14px 34px);animation:flow-forward var(--speed) linear infinite;will-change:background-position}.line.active i{display:block}.line.reverse i{animation-name:flow-reverse}.pv-line{grid-column:2;grid-row:1}.grid-line{grid-column:4;grid-row:1}.battery-line{grid-column:2;grid-row:2;transform:rotate(-35deg)}.load-line{grid-column:4;grid-row:2;transform:rotate(35deg)}
       @keyframes flow-forward{to{background-position:68px 0}}@keyframes flow-reverse{to{background-position:-68px 0}}
       .soc{margin-top:17px;display:grid;grid-template-columns:80px 1fr;gap:12px;align-items:end}.gauge{height:10px;background:color-mix(in srgb,var(--sb-text) 18%,var(--sb-surface));border-radius:8px;overflow:hidden}.gauge i{display:block;height:100%;width:var(--soc);background:linear-gradient(90deg,#ff7043,#66bb6a);border-radius:8px}.trendbox small{display:block;font-size:10px;color:var(--sb-muted);margin-bottom:2px}.trend{display:block;width:100%;height:38px;border-bottom:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent)}.trend polyline{fill:none;stroke:var(--sb-accent);stroke-width:2}
@@ -106,7 +108,7 @@ class SolarBridgeCard extends HTMLElement {
     </style><ha-card>
       <h2>${escapeHtml(this.config.title)}</h2><div class="flow">
         ${node("pv","Solar",formatPower(pv),"☀️")}${flow("pv-line","PV to inverter",pv)}${node("inverter","Inverter",formatPower(inverter),"⚡")}${flow("grid-line","Grid flow",grid,true)}${node("grid","Grid",formatPower(grid),"▦")}
-        ${node("battery","Battery",`${soc ?? "—"}% · ${formatPower(battery)}`,"🔋")}${flow("battery-line","Battery flow",battery)}${flow("load-line","Load flow",load)}${node("load","Home",formatPower(load),"⌂")}
+        ${node("battery","Battery",batteryValue,"🔋")}${flow("battery-line","Battery flow",battery)}${flow("load-line","Load flow",load)}${node("load","Home",formatPower(load),"⌂")}
       </div><div class="soc"><div><b>${soc ?? "—"}%</b><div class="gauge" style="--soc:${Math.max(0,Math.min(100,soc ?? 0))}%"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" preserveAspectRatio="none" aria-label="24 hour battery SOC trend"><polyline points="${sparklinePoints(this._socHistory || [])}"/></svg></div></div>
       <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div><small>${label} today</small><b>${this.energy(key)}</b></div>`).join("")}</div>
     </ha-card>`;
@@ -115,10 +117,15 @@ class SolarBridgeCard extends HTMLElement {
 
 class SolarBridgeCardEditor extends HTMLElement {
   setConfig(config) { this.config = config; this.render(); }
-  set hass(hass) { this._hass = hass; this.render(); }
+  set hass(hass) {
+    this._hass = hass;
+    if (!this.querySelector(".editor")) this.render();
+    this.querySelectorAll("ha-entity-picker").forEach(picker => { picker.hass = hass; });
+  }
   render() {
     if (!this._hass) return;
     this.innerHTML = `<style>.editor{display:grid;gap:12px;padding:8px}label{font-weight:600}ha-textfield,ha-entity-picker{width:100%}</style><div class="editor"><ha-textfield label="Title" value="${escapeHtml(this.config?.title || "Solar power flow")}" data-key="title"></ha-textfield>${ENTITY_FIELDS.map(([key,label]) => `<ha-entity-picker label="${label}${key.startsWith("daily_") ? " (optional)" : ""}" data-key="${key}" value="${escapeHtml(this.config?.[key] || "")}" include-domains='["sensor"]' allow-custom-entity></ha-entity-picker>`).join("")}</div>`;
+    this.querySelectorAll("ha-entity-picker").forEach(picker => { picker.hass = this._hass; });
     this.querySelectorAll("ha-textfield,ha-entity-picker").forEach(field => field.addEventListener("value-changed", event => {
       const key = event.currentTarget.dataset.key;
       const value = event.detail.value;
