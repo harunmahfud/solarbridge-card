@@ -1,5 +1,7 @@
 export function numericState(hass, entityId) {
-  const value = Number(hass?.states?.[entityId]?.state);
+  const state = hass?.states?.[entityId]?.state;
+  if (state == null || (typeof state === "string" && state.trim() === "")) return null;
+  const value = Number(state);
   return Number.isFinite(value) ? value : null;
 }
 
