@@ -1,5 +1,7 @@
 function numericState(hass, entityId) {
-  const value = Number(hass?.states?.[entityId]?.state);
+  const state = hass?.states?.[entityId]?.state;
+  if (state == null || (typeof state === "string" && state.trim() === "")) return null;
+  const value = Number(state);
   return Number.isFinite(value) ? value : null;
 }
 function formatPower(value) {
@@ -168,7 +170,7 @@ class SolarBridgeCard extends HTMLElement {
     if (!this._elements) this.cacheElements();
 
     const pv = this.value("pv_power");
-    const inverter = this.value("inverter_power") ?? pv;
+    const inverter = this.config.inverter_power ? this.value("inverter_power") : pv;
     const battery = this.value("battery_power");
     const soc = this.value("battery_soc");
     const load = this.value("load_power");
@@ -185,9 +187,9 @@ class SolarBridgeCard extends HTMLElement {
     text(this._elements.batteryPower, formatPower(battery));
     text(this._elements.load, formatPower(load));
     text(this._elements.flowStates.pv, this.flowState(pv, "Generating", "Reverse flow"));
-    text(this._elements.flowStates.inverter, this.flowState(inverter, "Producing", "Reverse flow"));
+    text(this._elements.flowStates.inverter, this.flowState(inverter, "Supplying", "Absorbing", "Standby"));
     text(this._elements.flowStates.grid, this.flowState(grid, "Importing", "Exporting"));
-    text(this._elements.flowStates.battery, this.flowState(battery, "Charging", "Discharging"));
+    text(this._elements.flowStates.battery, this.flowState(battery, "Discharging", "Charging"));
     text(this._elements.flowStates.load, this.flowState(load, "Consuming", "Reverse flow"));
     text(this._elements.soc, `${soc ?? "—"}%`);
     this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
@@ -201,9 +203,9 @@ class SolarBridgeCard extends HTMLElement {
     this.syncAnimationPlayback();
   }
 
-  flowState(value, positive, negative) {
+  flowState(value, positive, negative, idle = "Idle") {
     if (value == null) return "Unavailable";
-    if (Math.abs(value) < 1) return "Idle";
+    if (Math.abs(value) < 1) return idle;
     return value > 0 ? positive : negative;
   }
 
@@ -216,7 +218,8 @@ class SolarBridgeCard extends HTMLElement {
         if (!entityId) continue;
         visible += 1;
         const state = this._hass?.states?.[entityId];
-        const unavailable = !state || state.state === "unknown" || state.state === "unavailable" || state.state === "";
+        const unavailable = !state || state.state === "unknown" || state.state === "unavailable"
+          || (typeof state.state === "string" && state.state.trim() === "");
         const unit = state?.attributes?.unit_of_measurement;
         const value = unavailable ? "—" : `${state.state}${unit ? ` ${unit}` : ""}`;
         row.classList.toggle("unavailable", unavailable);

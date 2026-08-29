@@ -55,12 +55,12 @@
         grid_power: "sensor.grid", daily_solar: "sensor.solar_day", daily_load: "sensor.load_day",
         daily_grid_import: "sensor.import_day", daily_grid_export: "sensor.export_day",
       };
-      const values = [570, 570, -859, 15, 383, 52, 0.9, 2.3, 2.6, 0];
+      const values = [0, 176, 209, 87, 224, 48, 0.9, 2.3, 2.6, 0];
       const states = Object.fromEntries(ids.map((id, index) => [`sensor.${id}`, { state: String(values[index]) }]));
       const detailValues = {
         pv1_power: ["320", "W"], pv1_voltage: ["310.2", "V"], pv1_current: ["1.1", "A"],
         pv2_power: ["250", "W"], pv2_voltage: ["305.8", "V"], pv2_current: ["0.8", "A"],
-        inverter_voltage: ["230.1", "V"], inverter_current: ["2.5", "A"], running_status: ["unavailable"],
+        inverter_voltage: ["230.1", "V"], inverter_current: ["2.5", "A"], running_status: ["   "],
         ac_temperature: ["42.1", "°C"], dc_temperature: ["39.4", "°C"], battery_voltage: ["52.4", "V"],
         battery_current: ["-16.4", "A"], battery_temperature: ["29.2", "°C"], daily_battery_charge: ["1.2", "kWh"],
         daily_battery_discharge: ["2.1", "kWh"], total_battery_charge: ["1024.5", "kWh"], total_battery_discharge: ["980.2", "kWh"],
@@ -136,10 +136,55 @@
         ? !details.hidden && visibleDetailRows.length === 31 && detailColumns === (innerWidth <= 450 ? 1 : 2)
           && root.querySelector('.metric-row[data-key="inverter_voltage"] dd').textContent === "230.1 V"
           && root.querySelector('.metric-row[data-key="running_status"] dd').getAttribute("aria-label") === "Running status: Unavailable"
+          && root.querySelector(".inverter .flow-state").textContent === "Supplying"
           && root.querySelector(".battery .flow-state").textContent === "Discharging"
           && root.querySelector(".grid .flow-state").textContent === "Importing"
         : details.hidden && getComputedStyle(root.querySelector(".pv .flow-state")).display === "none";
       const lifecycle = {};
+      const semantics = {};
+
+      const expectedLabels = {
+        pv: ["Generating", "Reverse flow", "Idle", "Idle", "Unavailable", "Unavailable", "Unavailable", "Unavailable"],
+        inverter: ["Supplying", "Absorbing", "Standby", "Standby", "Unavailable", "Unavailable", "Unavailable", "Unavailable"],
+        grid: ["Importing", "Exporting", "Idle", "Idle", "Unavailable", "Unavailable", "Unavailable", "Unavailable"],
+        battery: ["Discharging", "Charging", "Idle", "Idle", "Unavailable", "Unavailable", "Unavailable", "Unavailable"],
+        load: ["Consuming", "Reverse flow", "Idle", "Idle", "Unavailable", "Unavailable", "Unavailable", "Unavailable"],
+      };
+      const labelCases = ["12", "-12", "0", "0.5", "unknown", "unavailable", "", "   "];
+      semantics.labelTruthTable = true;
+      for (const [index, state] of labelCases.entries()) {
+        card.hass = makeHass(Object.fromEntries(["pv", "inverter", "grid", "battery", "load"].map(id => [`sensor.${id}`, { state }])));
+        await waitForUpdate();
+        for (const [node, labels] of Object.entries(expectedLabels)) {
+          semantics.labelTruthTable &&= root.querySelector(`.${node} .flow-state`).textContent === labels[index];
+        }
+      }
+      card.hass = makeHass();
+      await waitForUpdate();
+      semantics.screenshotCase = root.querySelector(".pv strong").textContent === "0 W"
+        && root.querySelector(".inverter strong").textContent === "176 W"
+        && root.querySelector(".battery-power").textContent === "209 W"
+        && root.querySelector(".battery-soc-value").textContent === "87%"
+        && root.querySelector(".grid strong").textContent === "48 W"
+        && root.querySelector(".load strong").textContent === "224 W"
+        && root.querySelector(".inverter .flow-state").textContent === "Supplying"
+        && root.querySelector(".battery .flow-state").textContent === "Discharging";
+      const stableAnimations = pulses.map(pulse => pulse.getAnimations()[0]);
+      card.hass = makeHass({ "sensor.inverter": { state: "unavailable" } });
+      await waitForUpdate();
+      semantics.configuredInverterUnavailable = root.querySelector(".inverter strong").textContent === "—"
+        && root.querySelector(".inverter .flow-state").textContent === "Unavailable";
+      const fallbackConfig = { ...config };
+      delete fallbackConfig.inverter_power;
+      card.setConfig(fallbackConfig);
+      card.hass = makeHass({ "sensor.pv": { state: "345" } });
+      await waitForUpdate();
+      semantics.omittedInverterFallback = root.querySelector(".inverter strong").textContent === "345 W"
+        && root.querySelector(".inverter .flow-state").textContent === "Supplying";
+      semantics.semanticUpdatesPreserveIdentity = stableAnimations.every((animation, index) => pulses[index].getAnimations()[0] === animation);
+      card.setConfig(config);
+      card.hass = makeHass();
+      await waitForUpdate();
 
       if (reducedMotion) {
         card.hass = makeHass({ "sensor.pv": { state: "0.5" } });
@@ -216,7 +261,7 @@
       const tests = {
         labelContrast: labelContrast >= 4.5,
         valueContrast: valueContrast >= 4.5,
-        expectedDirections: reducedMotion || animations.map(animation => Math.sign(playbackRateRequests.get(animation))).join(",") === "1,-1,-1,1",
+        expectedDirections: reducedMotion || animations.map(animation => Math.sign(playbackRateRequests.get(animation))).join(",") === "1,-1,1,1",
         seamlessLoopOffset: animationOffsets.join(",") === "68" && animationOffsets.every(offset => Math.abs(offset) % 34 === 0),
         seamlessPattern: pulseBackgrounds.every(value => value.includes("repeating-linear-gradient")),
         fullConnectorPulse: pulseWidths.every(([line, pulse]) => Math.abs(pulse - line - 68) <= 1),
@@ -227,6 +272,7 @@
         editorDropdownPreserved: editor.querySelector("ha-entity-picker") === openPicker && openPicker.menuOpen && document.activeElement === openPicker,
         editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 41 && editor.querySelector("select").value === (systemView ? "system" : "overview"),
         viewMode: viewModeCorrect,
+        ...semantics,
         ...lifecycle,
       };
       document.querySelector("#result").textContent = JSON.stringify({

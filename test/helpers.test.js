@@ -4,7 +4,11 @@ import { flowDuration, formatPower, numericState, sparklinePoints } from "../hel
 
 test("reads numeric entity state safely", () => {
   assert.equal(numericState({states:{"sensor.pv":{state:"1234"}}}, "sensor.pv"), 1234);
-  assert.equal(numericState({states:{}}, "sensor.pv"), null);
+  assert.equal(numericState({states:{"sensor.pv":{state:"-12.5"}}}, "sensor.pv"), -12.5);
+  for (const state of [undefined, "unknown", "unavailable", "", "   "]) {
+    const hass = state === undefined ? { states: {} } : { states: { "sensor.pv": { state } } };
+    assert.equal(numericState(hass, "sensor.pv"), null);
+  }
 });
 
 test("formats power and bounds animation duration", () => {

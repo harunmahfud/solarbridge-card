@@ -20,6 +20,11 @@ Overview presentation formats its configured numeric W/kWh/% states as
 described in the README. System detail prints each configured entity state and
 its `unit_of_measurement` attribute without numeric transformation.
 
+For first-party SolarBridge power entities, positive battery power means
+discharging, positive grid power means importing, and positive inverter power
+means supplying AC. Negative values mean charging, exporting, and absorbing,
+respectively. The README contains the complete node label/direction table.
+
 | SolarBridge profile key | Card field | Presentation |
 | --- | --- | --- |
 | `running_status` | `running_status` | System detail · Inverter |
