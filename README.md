@@ -11,13 +11,28 @@ The card has no hardcoded SolarBridge entity IDs. It works with any integration 
 3. Add `https://github.com/harunmahfud/solarbridge-card` with category **Dashboard** (Plugin/Frontend).
 4. Install **SolarBridge Card** and refresh the browser.
 
-Add the card in the dashboard UI and use its visual editor to select PV, inverter, battery, load, grid, and optional daily energy entities. No YAML is required.
+Add the card in the dashboard UI and use its visual editor to select PV, inverter, battery, load, grid, and optional energy entities. No YAML is required.
+
+## Presentation modes
+
+- **Overview** (default) preserves the original flow topology, battery trend,
+  and daily summaries. Existing configurations remain in this mode without
+  changes.
+- **System detail** keeps the same topology and adds textual flow states plus
+  responsive groups for configured per-string, inverter, battery, grid/load,
+  AUX, and lifetime metrics. Groups use two columns when space permits and one
+  column on narrow cards. Unconfigured rows are omitted; a configured entity
+  that is missing, unknown, or unavailable remains visible as `—` and is
+  announced as unavailable to assistive technology.
+
+Choose the mode in the visual editor, or set `view_mode: system` in YAML.
 
 If configuring manually:
 
 ```yaml
 type: custom:solarbridge-card
 title: Solar power flow
+view_mode: system
 pv_power: sensor.solarbridge_pv1_power
 inverter_power: sensor.solarbridge_inverter_power
 battery_power: sensor.solarbridge_battery_power
@@ -28,13 +43,38 @@ daily_solar: sensor.solarbridge_daily_production
 daily_load: sensor.solarbridge_daily_load_consumption
 daily_grid_import: sensor.solarbridge_daily_energy_bought
 daily_grid_export: sensor.solarbridge_daily_energy_sold
+pv1_power: sensor.solarbridge_pv1_power
+pv1_voltage: sensor.solarbridge_pv1_voltage
+pv1_current: sensor.solarbridge_pv1_current
+pv2_power: sensor.solarbridge_pv2_power
+pv2_voltage: sensor.solarbridge_pv2_voltage
+pv2_current: sensor.solarbridge_pv2_current
+inverter_voltage: sensor.solarbridge_inverter_output_voltage
+inverter_current: sensor.solarbridge_inverter_current
+battery_voltage: sensor.solarbridge_battery_voltage
+battery_current: sensor.solarbridge_battery_current
+grid_voltage: sensor.solarbridge_grid_voltage
+grid_current: sensor.solarbridge_grid_current
 ```
+
+The inverter output voltage entity is introduced by `ha-solarbridge` PR #3;
+the picker also accepts an equivalent sensor from another integration. All
+System detail fields are optional. See the [complete 72-entity audit](ENTITY_AUDIT.md)
+for every supported mapping and the rationale for excluding identity, raw, and
+time-of-use setting entities.
 
 Positive/negative direction depends on the source integration's sign convention. If its convention differs, use a Home Assistant template sensor to invert that entity.
 
 ## Data and calculations
 
 The card reads numeric entity states; it does not derive a power balance or integrate power into energy. Entity unit attributes are not converted, so configure power sensors reporting **W**, daily energy sensors reporting **kWh**, and battery SOC reporting **%**.
+
+System detail values are even more literal: each row displays the selected
+entity's raw state string followed by its Home Assistant
+`unit_of_measurement`. It performs no rounding or parsing. In particular,
+`pv_power` is not calculated from `pv1_power` and `pv2_power`; choose the
+topology entity explicitly. The current SolarBridge profile does not expose a
+verified aggregate PV power register.
 
 | Display | Configuration/input | Raw or calculated behavior |
 | --- | --- | --- |
@@ -59,6 +99,13 @@ Flow animation is derived from each raw power value:
 - Positive PV, battery, and load values use the forward direction; negative values reverse it. Grid direction is intentionally inverted: positive uses the reverse direction and negative uses forward.
 - These signs control animation only. Displayed signed values are not adjusted.
 - Reduced-motion preferences disable the moving pattern while preserving the line's active/inactive indication.
+
+System detail also labels each topology node with an explicit state. Values
+below 1 W are **Idle**, missing values are **Unavailable**, and active signed
+values are described as Generating/Reverse flow, Producing/Reverse flow,
+Importing/Exporting, Charging/Discharging, or Consuming/Reverse flow according
+to the node. These labels follow the same sign convention as the animation and
+do not transform the displayed power.
 
 The four daily entities should already represent today's accumulating totals and reset according to their source integration. The card performs no summing, subtraction, normalization, sign adjustment, or unit conversion on them.
 
