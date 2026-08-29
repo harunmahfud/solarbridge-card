@@ -52,14 +52,18 @@
         grid_power: "sensor.grid", daily_solar: "sensor.solar_day", daily_load: "sensor.load_day",
         daily_grid_import: "sensor.import_day", daily_grid_export: "sensor.export_day",
       };
-      const values = [570, 570, -859, 15, 383, 52, 0, 2.3, 2.6, 0];
+      const values = [570, 570, -859, 15, 383, 52, 0.9, 2.3, 2.6, 0];
       const states = Object.fromEntries(ids.map((id, index) => [`sensor.${id}`, { state: String(values[index]) }]));
       let resolveHistory;
+      let statisticsCalls = 0;
       const history = new Promise(resolve => { resolveHistory = resolve; });
       const makeHass = overrides => ({
         states: { ...states, ...overrides },
         callApi: async () => history,
-        callWS: async () => ({}),
+        callWS: async () => {
+          statisticsCalls += 1;
+          return { "sensor.solar_day": [{ change: 0.1, sum: 100 }] };
+        },
       });
       const card = document.querySelector("solarbridge-card");
       card.setConfig(config);
@@ -160,6 +164,7 @@
         responsiveColumns: summaryColumns === (innerWidth <= 450 ? 2 : 4),
         noHorizontalOverflow: root.querySelector("ha-card").scrollWidth <= hostWidth,
         batteryValueContained: battery.scrollWidth <= battery.clientWidth,
+        dailyValuesRaw: summaries.map(item => item.querySelector("b").textContent).join(",") === "0.9 kWh,2.3 kWh,2.6 kWh,0.0 kWh" && statisticsCalls === 0,
         editorDropdownPreserved: editor.querySelector("ha-entity-picker") === openPicker && openPicker.menuOpen && document.activeElement === openPicker,
         ...lifecycle,
       };

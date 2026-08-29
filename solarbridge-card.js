@@ -55,14 +55,6 @@ class SolarBridgeCard extends HTMLElement {
       const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const history = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${encodeURIComponent(this.config.battery_soc)}&minimal_response`);
       this._socHistory = (history?.[0] || []).map(item => Number(item.state)).filter(Number.isFinite);
-      const statisticIds = ENTITY_FIELDS.slice(6).map(([key]) => this.config[key]).filter(Boolean);
-      if (statisticIds.length) {
-        const stats = await this._hass.callWS({
-          type: "recorder/statistics_during_period", start_time: `${day}T00:00:00`, end_time: new Date().toISOString(),
-          statistic_ids: statisticIds, period: "day", types: ["change", "sum"],
-        });
-        this._statistics = stats;
-      }
       this.render();
     } catch (error) {
       console.debug("SolarBridge Card history unavailable", error);
@@ -71,11 +63,7 @@ class SolarBridgeCard extends HTMLElement {
 
   value(key) { return numericState(this._hass, this.config[key]); }
   energy(key) {
-    const id = this.config[key];
-    const latest = this._statistics?.[id]?.at(-1);
-    const stat = latest?.change ?? latest?.sum;
-    const state = numericState(this._hass, id);
-    const value = Number.isFinite(stat) ? stat : state;
+    const value = numericState(this._hass, this.config[key]);
     return value == null ? "—" : `${value.toFixed(1)} kWh`;
   }
 
