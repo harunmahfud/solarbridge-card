@@ -89,6 +89,7 @@
         const values = [luminance(foreground), luminance(background)].sort((a, b) => b - a);
         return (values[0] + .05) / (values[1] + .05);
       }
+      const waitForUpdate = () => new Promise(resolve => setTimeout(resolve, 70));
 
       await new Promise(resolve => setTimeout(resolve, 250));
       const root = card.shadowRoot;
@@ -99,7 +100,7 @@
       const summaryBackground = getComputedStyle(summaries[0]).backgroundColor;
       const labelContrast = contrast(getComputedStyle(summaries[0].querySelector("small")).color, summaryBackground);
       const valueContrast = contrast(getComputedStyle(summaries[0].querySelector("b")).color, summaryBackground);
-      const animationOffsets = [...root.querySelector("style").textContent.matchAll(/@keyframes flow\{to\{background-position:(-?\d+)px/g)].map(match => Number(match[1]));
+      const animationOffsets = [...root.querySelector("style").textContent.matchAll(/@keyframes flow\{to\{transform:translateX\((-?\d+)px/g)].map(match => Number(match[1]));
       const pulseBackgrounds = lines.map(line => getComputedStyle(line.querySelector("i")).backgroundImage);
       const pulseWidths = lines.map(line => [line.clientWidth, line.querySelector("i").clientWidth]);
       const summaryColumns = new Set(summaries.map(item => Math.round(item.getBoundingClientRect().left))).size;
@@ -110,49 +111,70 @@
 
       if (reducedMotion) {
         card.hass = makeHass({ "sensor.pv": { state: "0.5" } });
+        await waitForUpdate();
         const inactive = getComputedStyle(pulses[0]).visibility === "hidden";
         card.hass = makeHass({ "sensor.pv": { state: "1200" } });
+        await waitForUpdate();
         lifecycle.reducedMotion = animations.every(animation => animation == null)
           && inactive && getComputedStyle(pulses[0]).visibility === "visible";
       } else {
+        let renderCalls = 0;
+        const render = card.render.bind(card);
+        card.render = () => { renderCalls += 1; return render(); };
+        card.hass = makeHass({ "sensor.unrelated": { state: "changed" } });
+        await waitForUpdate();
+        lifecycle.unrelatedUpdateFiltered = renderCalls === 0;
+
         const beforeRefresh = animations.map(animation => animation.currentTime);
         card.hass = makeHass({ "sensor.load_day": { state: "2.4" } });
+        card.hass = makeHass({ "sensor.load_day": { state: "2.5" } });
+        await waitForUpdate();
+        lifecycle.updatesCoalesced = renderCalls === 1;
         lifecycle.refreshIdentity = lines.every((line, index) => root.querySelectorAll(".line")[index] === line)
           && pulses.every((pulse, index) => root.querySelectorAll(".line i")[index] === pulse)
           && animations.every((animation, index) => pulses[index].getAnimations()[0] === animation);
-        lifecycle.refreshContinuity = animations.every((animation, index) => Math.abs(animation.currentTime - beforeRefresh[index]) < 20);
+        lifecycle.refreshContinuity = animations.every((animation, index) => Math.abs(animation.currentTime - beforeRefresh[index]) < 100);
 
         const pvAnimation = animations[0];
         const beforeSpeed = pvAnimation.currentTime;
         card.hass = makeHass({ "sensor.pv": { state: "1200" } });
+        await waitForUpdate();
         lifecycle.speedPhaseContinuous = pvAnimation === pulses[0].getAnimations()[0]
-          && Math.abs(pvAnimation.currentTime - beforeSpeed) < 20;
-        await new Promise(resolve => setTimeout(resolve, 100));
+          && Math.abs(pvAnimation.currentTime - beforeSpeed) < 100;
         lifecycle.speedChanged = Math.abs(playbackRateRequests.get(pvAnimation) - (1 / 1.5)) < .001;
 
         const beforeReverse = pvAnimation.currentTime;
         card.hass = makeHass({ "sensor.pv": { state: "-1200" } });
+        await waitForUpdate();
         const reversePhaseDelta = Math.abs((pvAnimation.currentTime % 1000) - (beforeReverse % 1000));
         lifecycle.reversePhaseContinuous = pvAnimation === pulses[0].getAnimations()[0]
-          && Math.min(reversePhaseDelta, 1000 - reversePhaseDelta) < 20;
-        await new Promise(resolve => setTimeout(resolve, 100));
+          && Math.min(reversePhaseDelta, 1000 - reversePhaseDelta) < 100;
         lifecycle.directionChanged = playbackRateRequests.get(pvAnimation) < 0;
 
         card.hass = makeHass({ "sensor.pv": { state: "0.5" } });
+        await waitForUpdate();
         const inactive = getComputedStyle(pulses[0]).visibility === "hidden";
         card.hass = makeHass({ "sensor.pv": { state: "100" } });
+        await waitForUpdate();
         lifecycle.activeThreshold = inactive && getComputedStyle(pulses[0]).visibility === "visible"
           && pulses[0].getAnimations()[0] === pvAnimation;
 
-        const beforeHistory = animations.map(animation => animation.currentTime);
-        resolveHistory([{ state: "10" }, { state: "15" }]);
+        resolveHistory([[{ state: "10" }, { state: "15" }]]);
         await new Promise(resolve => setTimeout(resolve, 100));
         lifecycle.historyIdentity = animations.every((animation, index) => pulses[index].getAnimations()[0] === animation)
-          && animations.some((animation, index) => animation.currentTime !== beforeHistory[index]);
+          && root.querySelector(".trend polyline").getAttribute("points") === "0.0,42.0 280.0,0.0";
 
         card.setConfig({ ...config, title: "Updated solar power flow" });
+        await waitForUpdate();
         lifecycle.configIdentity = animations.every((animation, index) => pulses[index].getAnimations()[0] === animation)
           && root.querySelector("h2").textContent === "Updated solar power flow";
+
+        card._intersecting = false;
+        card.syncAnimationPlayback();
+        const paused = animations.every(animation => animation.playState === "paused");
+        card._intersecting = true;
+        card.syncAnimationPlayback();
+        lifecycle.offscreenPauseResume = paused && animations.every(animation => animation.playState === "running");
       }
       const tests = {
         labelContrast: labelContrast >= 4.5,
@@ -160,7 +182,7 @@
         expectedDirections: reducedMotion || animations.map(animation => Math.sign(playbackRateRequests.get(animation))).join(",") === "1,-1,-1,1",
         seamlessLoopOffset: animationOffsets.join(",") === "68" && animationOffsets.every(offset => Math.abs(offset) % 34 === 0),
         seamlessPattern: pulseBackgrounds.every(value => value.includes("repeating-linear-gradient")),
-        fullConnectorPulse: pulseWidths.every(([line, pulse]) => line === pulse),
+        fullConnectorPulse: pulseWidths.every(([line, pulse]) => Math.abs(pulse - line - 68) <= 1),
         responsiveColumns: summaryColumns === (innerWidth <= 450 ? 2 : 4),
         noHorizontalOverflow: root.querySelector("ha-card").scrollWidth <= hostWidth,
         batteryValueContained: battery.scrollWidth <= battery.clientWidth,

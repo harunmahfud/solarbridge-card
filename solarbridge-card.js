@@ -29,16 +29,61 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"]/g, character =
 
 class SolarBridgeCard extends HTMLElement {
   setConfig(config) {
+    const batteryEntityChanged = this.config?.battery_soc !== config.battery_soc;
     this.config = { title: "Solar power flow", ...config };
-    this._historyKey = "";
+    if (batteryEntityChanged) this._historyKey = "";
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
-    this.render();
+    this._stateSignature = "";
+    this.scheduleRender();
   }
 
   set hass(hass) {
     this._hass = hass;
-    this.render();
+    const signature = ENTITY_FIELDS.map(([key]) => {
+      const entityId = this.config?.[key];
+      return `${entityId || ""}:${hass?.states?.[entityId]?.state || ""}`;
+    }).join("|");
+    if (signature !== this._stateSignature) {
+      this._stateSignature = signature;
+      this.scheduleRender();
+    }
     this.loadHistory();
+  }
+
+  connectedCallback() {
+    this._intersecting = true;
+    this._visibilityHandler = () => this.syncAnimationPlayback();
+    document.addEventListener("visibilitychange", this._visibilityHandler);
+    if ("IntersectionObserver" in window) {
+      this._observer = new IntersectionObserver(([entry]) => {
+        this._intersecting = entry.isIntersecting;
+        this.syncAnimationPlayback();
+      });
+      this._observer.observe(this);
+    }
+  }
+
+  disconnectedCallback() {
+    document.removeEventListener("visibilitychange", this._visibilityHandler);
+    this._observer?.disconnect();
+    if (this._renderFrame) cancelAnimationFrame(this._renderFrame);
+    clearTimeout(this._renderTimer);
+    this._renderFrame = null;
+    this._renderTimer = null;
+  }
+
+  scheduleRender() {
+    if (!this._hass || this._renderFrame || this._renderTimer) return;
+    const render = () => {
+      if (!this._renderFrame && !this._renderTimer) return;
+      if (this._renderFrame) cancelAnimationFrame(this._renderFrame);
+      clearTimeout(this._renderTimer);
+      this._renderFrame = null;
+      this._renderTimer = null;
+      this.render();
+    };
+    this._renderFrame = requestAnimationFrame(render);
+    this._renderTimer = setTimeout(render, 50);
   }
 
   getCardSize() { return 6; }
@@ -55,7 +100,7 @@ class SolarBridgeCard extends HTMLElement {
       const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const history = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${encodeURIComponent(this.config.battery_soc)}&minimal_response`);
       this._socHistory = (history?.[0] || []).map(item => Number(item.state)).filter(Number.isFinite);
-      this.render();
+      this.scheduleRender();
     } catch (error) {
       console.debug("SolarBridge Card history unavailable", error);
     }
@@ -76,8 +121,8 @@ class SolarBridgeCard extends HTMLElement {
       .node{min-width:0;text-align:center;padding:12px 5px;border:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent);border-radius:16px;background:color-mix(in srgb,var(--sb-text) 9%,var(--sb-surface));box-shadow:0 8px 25px #0001}
       .node b,.node strong{display:block;white-space:nowrap}.node b{font-size:12px;color:var(--sb-muted);margin:3px}.node strong{font-size:16px}.icon{font-size:25px}.pv{grid-column:1}.inverter{grid-column:3}.grid{grid-column:5}.battery{grid-column:1;grid-row:3}.load{grid-column:5;grid-row:3}
       .battery strong{display:flex;flex-wrap:wrap;justify-content:center;column-gap:.25em;white-space:normal}.battery strong>span{white-space:nowrap}
-      .line{height:4px;position:relative;background:color-mix(in srgb,var(--sb-text) 22%,var(--sb-surface));border-radius:5px;overflow:hidden}.line i{visibility:hidden;position:absolute;inset:0;border-radius:inherit;background:repeating-linear-gradient(90deg,var(--sb-accent) 0 14px,transparent 14px 34px);animation:flow 1s linear infinite;will-change:background-position}.line.active i{visibility:visible}.pv-line{grid-column:2;grid-row:1}.grid-line{grid-column:4;grid-row:1}.battery-line{grid-column:2;grid-row:2;transform:rotate(-35deg)}.load-line{grid-column:4;grid-row:2;transform:rotate(35deg)}
-      @keyframes flow{to{background-position:68px 0}}
+      .line{height:4px;position:relative;background:color-mix(in srgb,var(--sb-text) 22%,var(--sb-surface));border-radius:5px;overflow:hidden}.line i{visibility:hidden;position:absolute;top:0;bottom:0;left:-68px;width:calc(100% + 68px);border-radius:inherit;background:repeating-linear-gradient(90deg,var(--sb-accent) 0 14px,transparent 14px 34px);animation:flow 1s linear infinite;will-change:transform}.line.active i{visibility:visible}.pv-line{grid-column:2;grid-row:1}.grid-line{grid-column:4;grid-row:1}.battery-line{grid-column:2;grid-row:2;transform:rotate(-35deg)}.load-line{grid-column:4;grid-row:2;transform:rotate(35deg)}
+      @keyframes flow{to{transform:translateX(68px)}}
       .soc{margin-top:17px;display:grid;grid-template-columns:80px 1fr;gap:12px;align-items:end}.gauge{height:10px;background:color-mix(in srgb,var(--sb-text) 18%,var(--sb-surface));border-radius:8px;overflow:hidden}.gauge i{display:block;height:100%;width:var(--soc);background:linear-gradient(90deg,#ff7043,#66bb6a);border-radius:8px}.trendbox small{display:block;font-size:10px;color:var(--sb-muted);margin-bottom:2px}.trend{display:block;width:100%;height:38px;border-bottom:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent)}.trend polyline{fill:none;stroke:var(--sb-accent);stroke-width:2}
       .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:16px}.summary div{padding:9px 4px;text-align:center;border:1px solid color-mix(in srgb,var(--sb-text) 10%,transparent);border-radius:10px;background:color-mix(in srgb,var(--sb-text) 6%,var(--sb-surface))}.summary small,.summary b{display:block}.summary small{color:var(--sb-muted);font-size:10px}.summary b{font-size:12px;margin-top:3px}@media(max-width:450px){.summary{grid-template-columns:repeat(2,1fr)}}@media(prefers-reduced-motion:reduce){.line i{animation:none}}
     </style><ha-card>
@@ -87,6 +132,7 @@ class SolarBridgeCard extends HTMLElement {
       </div><div class="soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" preserveAspectRatio="none" aria-label="24 hour battery SOC trend"><polyline/></svg></div></div>
       <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
     </ha-card>`;
+    if (!this._elements) this.cacheElements();
 
     const pv = this.value("pv_power");
     const inverter = this.value("inverter_power") ?? pv;
@@ -94,26 +140,37 @@ class SolarBridgeCard extends HTMLElement {
     const soc = this.value("battery_soc");
     const load = this.value("load_power");
     const grid = this.value("grid_power");
-    const text = (selector, value) => { this.shadowRoot.querySelector(selector).textContent = value; };
-    text("h2", this.config.title);
-    text(".pv strong", formatPower(pv));
-    text(".inverter strong", formatPower(inverter));
-    text(".grid strong", formatPower(grid));
-    text(".battery-soc-value", `${soc ?? "—"}%`);
-    text(".battery-power", formatPower(battery));
-    text(".load strong", formatPower(load));
-    text(".soc>div>b", `${soc ?? "—"}%`);
-    this.shadowRoot.querySelector(".gauge").style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
-    this.shadowRoot.querySelector(".trend polyline").setAttribute("points", sparklinePoints(this._socHistory || []));
-    for (const [key] of ENTITY_FIELDS.slice(6)) text(`.summary [data-key="${key}"] b`, this.energy(key));
-    this.updateFlow("pv-line", "PV to inverter", pv);
-    this.updateFlow("grid-line", "Grid flow", grid, true);
-    this.updateFlow("battery-line", "Battery flow", battery);
-    this.updateFlow("load-line", "Load flow", load);
+    const text = (element, value) => { if (element.textContent !== value) element.textContent = value; };
+    text(this._elements.title, this.config.title);
+    text(this._elements.pv, formatPower(pv));
+    text(this._elements.inverter, formatPower(inverter));
+    text(this._elements.grid, formatPower(grid));
+    text(this._elements.batterySoc, `${soc ?? "—"}%`);
+    text(this._elements.batteryPower, formatPower(battery));
+    text(this._elements.load, formatPower(load));
+    text(this._elements.soc, `${soc ?? "—"}%`);
+    this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
+    this._elements.trend.setAttribute("points", sparklinePoints(this._socHistory || []));
+    for (const [key] of ENTITY_FIELDS.slice(6)) text(this._elements.energy[key], this.energy(key));
+    this.updateFlow(this._elements.lines[0], "PV to inverter", pv);
+    this.updateFlow(this._elements.lines[1], "Grid flow", grid, true);
+    this.updateFlow(this._elements.lines[2], "Battery flow", battery);
+    this.updateFlow(this._elements.lines[3], "Load flow", load);
+    this.syncAnimationPlayback();
   }
 
-  updateFlow(kind, name, value, reverse = false) {
-    const line = this.shadowRoot.querySelector(`.${kind}`);
+  cacheElements() {
+    const select = selector => this.shadowRoot.querySelector(selector);
+    this._elements = {
+      title: select("h2"), pv: select(".pv strong"), inverter: select(".inverter strong"),
+      grid: select(".grid strong"), batterySoc: select(".battery-soc-value"),
+      batteryPower: select(".battery-power"), load: select(".load strong"), soc: select(".soc>div>b"),
+      gauge: select(".gauge"), trend: select(".trend polyline"), lines: [...this.shadowRoot.querySelectorAll(".line")],
+      energy: Object.fromEntries(ENTITY_FIELDS.slice(6).map(([key]) => [key, select(`.summary [data-key="${key}"] b`)])),
+    };
+  }
+
+  updateFlow(line, name, value, reverse = false) {
     const active = value != null && Math.abs(value) >= 1;
     const backwards = active && ((value < 0) !== reverse);
     line.classList.toggle("active", active);
@@ -125,6 +182,16 @@ class SolarBridgeCard extends HTMLElement {
       if (playbackRate < 0 && animation.currentTime < 1_000_000_000) animation.currentTime += 1_000_000_000;
       animation.updatePlaybackRate(playbackRate);
       line._playbackRate = playbackRate;
+    }
+  }
+
+  syncAnimationPlayback() {
+    const shouldRun = !document.hidden && this._intersecting !== false;
+    for (const line of this._elements?.lines || []) {
+      const animation = line.querySelector("i").getAnimations()[0];
+      if (!animation) continue;
+      if (shouldRun && animation.playState === "paused") animation.play();
+      if (!shouldRun && animation.playState === "running") animation.pause();
     }
   }
 }
