@@ -93,7 +93,7 @@ verified aggregate PV power register.
 | Home power | `load_power` | Raw numeric entity state, assumed W; presentation formatting only. |
 | Grid power | `grid_power` | Raw signed numeric entity state, assumed W; presentation formatting only. |
 | Battery SOC text | `battery_soc` | Raw numeric entity state with `%` appended. The gauge width clamps this value to 0–100%; the displayed number itself is not clamped. |
-| Battery SOC · 24h | Recorder history for `battery_soc` | Numeric states returned for the preceding 24 hours. Points are evenly spaced in response order and min/max-normalized to the chart height; timestamps are not used for horizontal spacing. This affects only the sparkline, not the SOC value. |
+| Battery SOC · 24h | Recorder history for `battery_soc` | Numeric states returned for the preceding 24 hours plus the current state as a live endpoint. Samples use their actual timestamps on the horizontal axis and are min/max-normalized vertically, then rendered as a smooth 2 px curve with a translucent area fill. History refreshes hourly. This affects only the graph, not the SOC value. |
 | Solar today | `daily_solar` | Raw current numeric entity state, assumed kWh, rounded to one decimal. It is not calculated from `pv_power` and does not use Recorder statistic `change` or `sum`. |
 | Load today | `daily_load` | Raw current numeric entity state, assumed kWh, rounded to one decimal. |
 | Imported today | `daily_grid_import` | Raw current numeric entity state, assumed kWh, rounded to one decimal. |
