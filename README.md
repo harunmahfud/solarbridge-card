@@ -27,10 +27,11 @@ values use the secondary text color.
   changes.
 - **System detail** keeps the same topology and adds textual flow states plus
   responsive groups for configured per-string, inverter, battery, grid/load,
-  AUX, and lifetime metrics. Groups use two columns when space permits and one
-  column on narrow cards. Unconfigured rows are omitted; a configured entity
-  that is missing, unknown, or unavailable remains visible as `—` and is
-  announced as unavailable to assistive technology.
+  battery management system (BMS), AUX, and lifetime metrics. Groups use two
+  columns when space permits and one column on narrow cards. Unconfigured rows
+  are omitted; a configured entity that is missing, unknown, or unavailable
+  remains visible as `—` and is announced as unavailable to assistive
+  technology.
 
 Choose the mode in the visual editor, or set `view_mode: system` in YAML.
 
@@ -60,15 +61,24 @@ inverter_voltage: sensor.solarbridge_inverter_output_voltage
 inverter_current: sensor.solarbridge_inverter_current
 battery_voltage: sensor.solarbridge_battery_voltage
 battery_current: sensor.solarbridge_battery_current
+bms_charging_voltage: sensor.solarbridge_bms_charging_voltage
+bms_discharge_voltage: sensor.solarbridge_bms_discharge_voltage
+bms_charge_current_limit: sensor.solarbridge_bms_charge_current_limit
+bms_discharge_current_limit: sensor.solarbridge_bms_discharge_current_limit
+bms_soc: sensor.solarbridge_bms_soc
+bms_voltage: sensor.solarbridge_bms_voltage
+bms_current: sensor.solarbridge_bms_current
+bms_temperature: sensor.solarbridge_bms_temperature
 grid_voltage: sensor.solarbridge_grid_voltage
 grid_current: sensor.solarbridge_grid_current
 ```
 
-The inverter output voltage entity is introduced by `ha-solarbridge` PR #3;
-the picker also accepts an equivalent sensor from another integration. All
-System detail fields are optional. See the [complete 72-entity audit](ENTITY_AUDIT.md)
-for every supported mapping and the rationale for excluding identity, raw, and
-time-of-use setting entities.
+The BMS fields require `ha-solarbridge` v0.1.9 or an equivalent sensor from
+another integration. `bms_voltage` is the voltage reported by the BMS and is
+distinct from the inverter battery-terminal reading exposed as
+`battery_voltage`. All System detail fields are optional. See the
+[complete 80-entity audit](ENTITY_AUDIT.md) for every supported mapping and the
+rationale for excluding identity, raw, and time-of-use setting entities.
 
 The labels and animation directions follow the first-party SolarBridge sign
 contract documented below. If another integration uses different signs, use a
