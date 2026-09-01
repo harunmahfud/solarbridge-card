@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { flowDuration, formatPower, numericState, sparklinePoints } from "../helpers.js";
+import { flowDuration, formatPower, numericState, sparklinePaths } from "../helpers.js";
 
 test("reads numeric entity state safely", () => {
   assert.equal(numericState({states:{"sensor.pv":{state:"1234"}}}, "sensor.pv"), 1234);
@@ -19,7 +19,13 @@ test("formats power and bounds animation duration", () => {
   assert.ok(flowDuration(1) <= 3);
 });
 
-test("creates bounded sparkline points", () => {
-  assert.equal(sparklinePoints([]), "");
-  assert.equal(sparklinePoints([20, 40], 100, 20), "0.0,20.0 100.0,0.0");
+test("creates smooth, time-based sparkline paths", () => {
+  assert.deepEqual(sparklinePaths([]), { line: "", area: "" });
+  const paths = sparklinePaths([
+    { value: 20, time: 100 },
+    { value: 30, time: 125 },
+    { value: 40, time: 200 },
+  ], 100, 20, 100, 200);
+  assert.equal(paths.line, "M 2.0 18.0 C 11.6 18.0 16.4 10.0 26.0 10.0 C 54.8 10.0 69.2 2.0 98.0 2.0");
+  assert.equal(paths.area, `${paths.line} L 98.0 20 L 2.0 20 Z`);
 });

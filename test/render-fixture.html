@@ -264,10 +264,17 @@
         lifecycle.activeThreshold = inactive && getComputedStyle(pulses[0]).visibility === "visible"
           && pulses[0].getAnimations()[0] === pvAnimation;
 
-        resolveHistory([[{ state: "10" }, { state: "15" }]]);
+        const historyNow = Date.now();
+        resolveHistory([[
+          { state: "10", last_changed: new Date(historyNow - 20 * 60 * 60 * 1000).toISOString() },
+          { state: "15", last_changed: new Date(historyNow - 8 * 60 * 60 * 1000).toISOString() },
+        ]]);
         await new Promise(resolve => setTimeout(resolve, 100));
+        const trendLine = root.querySelector(".trend-line").getAttribute("d");
+        const trendArea = root.querySelector(".trend-area").getAttribute("d");
         lifecycle.historyIdentity = animations.every((animation, index) => pulses[index].getAnimations()[0] === animation)
-          && root.querySelector(".trend polyline").getAttribute("points") === "0.0,42.0 280.0,0.0";
+          && trendLine.startsWith("M ") && trendLine.includes(" C ")
+          && trendArea.startsWith(trendLine) && trendArea.endsWith(" Z");
 
         card.setConfig({ ...config, title: "Updated solar power flow" });
         await waitForUpdate();

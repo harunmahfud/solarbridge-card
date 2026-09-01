@@ -11,13 +11,29 @@ function formatPower(value) {
 function flowDuration(value) {
   return value ? Math.max(0.45, Math.min(3, 1800 / Math.abs(value))) : 0;
 }
-function sparklinePoints(values, width = 280, height = 42) {
-  if (!values.length) return "";
-  const min = Math.min(...values), span = Math.max(...values) - min || 1;
-  return values.map((value, index) => {
-    const x = values.length === 1 ? width / 2 : index * width / (values.length - 1);
-    return `${x.toFixed(1)},${(height - ((value - min) / span) * height).toFixed(1)}`;
-  }).join(" ");
+function sparklinePaths(samples, width = 280, height = 42, startTime, endTime) {
+  const points = samples.map(sample => ({ value: Number(sample.value), time: Number(sample.time) }))
+    .filter(sample => Number.isFinite(sample.value) && Number.isFinite(sample.time)).sort((a, b) => a.time - b.time);
+  if (!points.length) return { line: "", area: "" };
+  const minTime = Number.isFinite(startTime) ? startTime : points[0].time;
+  const maxTime = Number.isFinite(endTime) ? endTime : points.at(-1).time;
+  const timeSpan = maxTime - minTime || 1;
+  const minValue = Math.min(...points.map(point => point.value));
+  const valueSpan = Math.max(...points.map(point => point.value)) - minValue;
+  const padding = 2, plotWidth = width - padding * 2, plotHeight = height - padding * 2;
+  const coordinates = points.map(point => ({
+    x: padding + Math.max(0, Math.min(1, (point.time - minTime) / timeSpan)) * plotWidth,
+    y: valueSpan ? padding + (1 - (point.value - minValue) / valueSpan) * plotHeight : height / 2,
+  }));
+  const format = value => value.toFixed(1);
+  let line = `M ${format(coordinates[0].x)} ${format(coordinates[0].y)}`;
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const previous = coordinates[index - 1], point = coordinates[index];
+    const control = (point.x - previous.x) * 0.4;
+    line += ` C ${format(previous.x + control)} ${format(previous.y)} ${format(point.x - control)} ${format(point.y)} ${format(point.x)} ${format(point.y)}`;
+  }
+  const first = coordinates[0], last = coordinates.at(-1);
+  return { line, area: `${line} L ${format(last.x)} ${height} L ${format(first.x)} ${height} Z` };
 }
 
 const CORE_ENTITY_FIELDS = [
@@ -123,14 +139,18 @@ class SolarBridgeCard extends HTMLElement {
 
   async loadHistory() {
     if (!this._hass || !this.config?.battery_soc) return;
-    const day = new Date().toISOString().slice(0, 10);
-    const key = `${this.config.battery_soc}:${day}`;
+    const now = Date.now();
+    const key = `${this.config.battery_soc}:${Math.floor(now / (60 * 60 * 1000))}`;
     if (key === this._historyKey) return;
     this._historyKey = key;
     try {
-      const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const history = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${encodeURIComponent(this.config.battery_soc)}&minimal_response`);
-      this._socHistory = (history?.[0] || []).map(item => Number(item.state)).filter(Number.isFinite);
+      const start = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+      const end = new Date(now).toISOString();
+      const history = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${encodeURIComponent(this.config.battery_soc)}&end_time=${encodeURIComponent(end)}&minimal_response`);
+      this._socHistory = (history?.[0] || []).map(item => ({
+        value: Number(item.state),
+        time: new Date(item.last_changed || item.last_updated).getTime(),
+      })).filter(item => Number.isFinite(item.value) && Number.isFinite(item.time));
       this.scheduleRender();
     } catch (error) {
       console.debug("SolarBridge Card history unavailable", error);
@@ -173,7 +193,7 @@ class SolarBridgeCard extends HTMLElement {
       .flow-state{display:none;margin-top:4px;color:var(--sb-muted);font-size:10px}.system-mode .flow-state{display:block}
       .line{height:4px;position:relative;background:color-mix(in srgb,var(--sb-text) 22%,var(--sb-surface));border-radius:5px;overflow:hidden}.line[hidden]{display:block!important;visibility:hidden}.line i{visibility:hidden;position:absolute;top:0;bottom:0;left:-68px;width:calc(100% + 68px);border-radius:inherit;background:repeating-linear-gradient(90deg,var(--sb-accent) 0 14px,transparent 14px 34px);animation:flow 1s linear infinite;will-change:transform}.line.active i{visibility:visible}.pv-line{grid-column:2;grid-row:1}.grid-line{grid-column:4;grid-row:1}.battery-line{grid-column:2;grid-row:2;transform:rotate(-35deg)}.load-line{grid-column:4;grid-row:2;transform:rotate(35deg)}
       @keyframes flow{to{transform:translateX(68px)}}
-      .soc{margin-top:17px;display:grid;grid-template-columns:80px 1fr;gap:12px;align-items:end}.gauge{height:10px;background:color-mix(in srgb,var(--sb-text) 18%,var(--sb-surface));border-radius:8px;overflow:hidden}.gauge i{display:block;height:100%;width:var(--soc);background:linear-gradient(90deg,#ff7043,#66bb6a);border-radius:8px}.trendbox small{display:block;font-size:10px;color:var(--sb-muted);margin-bottom:2px}.trend{display:block;width:100%;height:38px;border-bottom:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent)}.trend polyline{fill:none;stroke:var(--sb-accent);stroke-width:2}
+      .soc{margin-top:17px;display:grid;grid-template-columns:80px 1fr;gap:12px;align-items:end}.gauge{height:10px;background:color-mix(in srgb,var(--sb-text) 18%,var(--sb-surface));border-radius:8px;overflow:hidden}.gauge i{display:block;height:100%;width:var(--soc);background:linear-gradient(90deg,#ff7043,#66bb6a);border-radius:8px}.trendbox small{display:block;font-size:10px;color:var(--sb-muted);margin-bottom:2px}.trend{display:block;width:100%;height:42px;border-bottom:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent);overflow:visible}.trend-line{fill:none;stroke:var(--sb-accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}.trend-area{fill:url(#soc-trend-gradient)}
       .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:16px}.summary div{padding:9px 4px;text-align:center;border:1px solid color-mix(in srgb,var(--sb-text) 10%,transparent);border-radius:10px;background:color-mix(in srgb,var(--sb-text) 6%,var(--sb-surface))}.summary small,.summary b{display:block}.summary small{color:var(--sb-muted);font-size:10px}.summary b{font-size:12px;margin-top:3px}@media(max-width:450px){.summary{grid-template-columns:repeat(2,1fr)}}@media(prefers-reduced-motion:reduce){.line i{animation:none}}
       .details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:16px}.details[hidden],.metric-group[hidden]{display:none}.metric-group{min-width:0;padding:10px;border:1px solid color-mix(in srgb,var(--sb-text) 10%,transparent);border-radius:12px;background:color-mix(in srgb,var(--sb-text) 5%,var(--sb-surface))}.metric-group h3{font-size:13px;margin:0 0 7px}.metric-group dl{margin:0}.metric-row{display:flex;justify-content:space-between;gap:8px;padding:3px 0;font-size:11px}.metric-row dt{min-width:0;color:var(--sb-muted)}.metric-row dd{margin:0;white-space:nowrap;font-weight:600}.metric-row.unavailable dd{color:var(--sb-muted)}
       @media(max-width:450px){.details{grid-template-columns:1fr}}
@@ -181,7 +201,7 @@ class SolarBridgeCard extends HTMLElement {
       <h2></h2><div class="flow">
         <div class="node pv entity-item" data-key="pv_power" aria-label="Solar"><span class="icon">☀️</span><b>Solar</b><strong></strong><small class="flow-state"></small></div><div class="line pv-line" role="img"><i></i></div><div class="node inverter entity-item" data-key="inverter_power" aria-label="Inverter"><span class="icon">⚡</span><b>Inverter</b><strong></strong><small class="flow-state"></small></div><div class="line grid-line" role="img"><i></i></div><div class="node grid entity-item" data-key="grid_power" aria-label="Grid"><span class="icon">▦</span><b>Grid</b><strong></strong><small class="flow-state"></small></div>
         <div class="node battery entity-item" data-key="battery_power" data-fallback-key="battery_soc" aria-label="Battery"><span class="icon">🔋</span><b>Battery</b><strong><span class="battery-soc"><span class="battery-soc-value"></span> <span aria-hidden="true">·</span></span><span class="battery-power"></span></strong><small class="flow-state"></small></div><div class="line battery-line" role="img"><i></i></div><div class="line load-line" role="img"><i></i></div><div class="node load entity-item" data-key="load_power" aria-label="Home"><span class="icon">⌂</span><b>Home</b><strong></strong><small class="flow-state"></small></div>
-      </div><div class="soc entity-item" data-key="battery_soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" preserveAspectRatio="none" aria-label="24 hour battery SOC trend"><polyline/></svg></div></div>
+      </div><div class="soc entity-item" data-key="battery_soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" preserveAspectRatio="none" aria-label="24 hour battery SOC trend"><defs><linearGradient id="soc-trend-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--sb-accent)" stop-opacity=".38"/><stop offset="1" stop-color="var(--sb-accent)" stop-opacity="0"/></linearGradient></defs><path class="trend-area"/><path class="trend-line"/></svg></div></div>
       <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div class="entity-item" data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
       <section class="details" aria-label="System details" hidden>${DETAIL_GROUPS.map(([group, fields]) => `<section class="metric-group" data-group="${escapeHtml(group)}"><h3>${escapeHtml(group)}</h3><dl>${fields.map(([key,label]) => `<div class="metric-row entity-item" data-key="${key}" hidden><dt>${label}</dt><dd></dd></div>`).join("")}</dl></section>`).join("")}</section>
     </ha-card>`;
@@ -216,7 +236,12 @@ class SolarBridgeCard extends HTMLElement {
     text(this._elements.flowStates.load, this.flowState(load, "Consuming", "Reverse flow"));
     text(this._elements.soc, `${soc ?? "—"}%`);
     this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
-    this._elements.trend.setAttribute("points", sparklinePoints(this._socHistory || []));
+    const now = Date.now();
+    const samples = [...(this._socHistory || [])];
+    if (soc != null) samples.push({ value: soc, time: now });
+    const trend = sparklinePaths(samples, 280, 42, now - 24 * 60 * 60 * 1000, now);
+    this._elements.trendLine.setAttribute("d", trend.line);
+    this._elements.trendArea.setAttribute("d", trend.area);
     for (const [key] of CORE_ENTITY_FIELDS.slice(6)) text(this._elements.energy[key], this.energy(key));
     for (const item of this._elements.entityItems) this.updateEntityItem(item, item.dataset.key, item.dataset.fallbackKey);
     this._elements.summary.hidden = !CORE_ENTITY_FIELDS.slice(6).some(([key]) => this.config[key]);
@@ -267,7 +292,8 @@ class SolarBridgeCard extends HTMLElement {
       grid: select(".grid strong"), batterySoc: select(".battery-soc-value"),
       batterySocGroup: select(".battery-soc"), batteryPower: select(".battery-power"),
       load: select(".load strong"), soc: select(".soc>div>b"),
-      gauge: select(".gauge"), trend: select(".trend polyline"), lines: [...this.shadowRoot.querySelectorAll(".line")],
+      gauge: select(".gauge"), trendLine: select(".trend-line"), trendArea: select(".trend-area"),
+      lines: [...this.shadowRoot.querySelectorAll(".line")],
       flowStates: Object.fromEntries(["pv", "inverter", "grid", "battery", "load"].map(key => [key, select(`.${key} .flow-state`)])),
       energy: Object.fromEntries(CORE_ENTITY_FIELDS.slice(6).map(([key]) => [key, select(`.summary [data-key="${key}"] b`)])),
       entityItems: [...this.shadowRoot.querySelectorAll(".entity-item")],
