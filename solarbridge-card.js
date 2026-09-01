@@ -143,17 +143,35 @@ class SolarBridgeCard extends HTMLElement {
     return value == null ? "—" : `${value.toFixed(1)} kWh`;
   }
 
+  entityId(key, fallbackKey) {
+    return this.config[key] || (fallbackKey ? this.config[fallbackKey] : undefined);
+  }
+
+  updateEntityItem(element, key, fallbackKey) {
+    const entityId = this.entityId(key, fallbackKey);
+    element.hidden = !entityId;
+    element.tabIndex = entityId ? 0 : -1;
+    if (entityId) element.setAttribute("role", "button");
+    else element.removeAttribute("role");
+  }
+
+  updateValueTone(element, value) {
+    element.dataset.valueTone = value == null ? "unavailable" : value > 0 ? "positive" : value < 0 ? "negative" : "idle";
+  }
+
   render() {
     if (!this.shadowRoot || !this._hass) return;
     if (!this.shadowRoot.querySelector("ha-card")) this.shadowRoot.innerHTML = `<style>
       :host{--sb-surface:var(--ha-card-background,var(--card-background-color,#fff));--sb-text:var(--primary-text-color,#212121);--sb-muted:var(--secondary-text-color,#616161);--sb-accent:var(--primary-color,#03a9f4);display:block;color:var(--sb-text);font-family:var(--paper-font-body1_-_font-family,system-ui)}
       ha-card{display:block;overflow:hidden;padding:20px;border-radius:var(--ha-card-border-radius,12px);background:radial-gradient(circle at 50% 12%,color-mix(in srgb,var(--sb-accent) 7%,transparent),transparent 58%),var(--sb-surface)}
       h2{font-size:20px;margin:0 0 18px}.flow{display:grid;grid-template-columns:1fr 54px 1fr 54px 1fr;grid-template-rows:auto 54px auto;align-items:center;gap:4px}
+      [hidden]{display:none!important}.entity-item{cursor:pointer}.entity-item:focus-visible{outline:2px solid var(--sb-accent);outline-offset:2px}
       .node{min-width:0;text-align:center;padding:12px 5px;border:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent);border-radius:16px;background:color-mix(in srgb,var(--sb-text) 9%,var(--sb-surface));box-shadow:0 8px 25px #0001}
       .node b,.node strong{display:block;white-space:nowrap}.node b{font-size:12px;color:var(--sb-muted);margin:3px}.node strong{font-size:16px}.icon{font-size:25px}.pv{grid-column:1}.inverter{grid-column:3}.grid{grid-column:5}.battery{grid-column:1;grid-row:3}.load{grid-column:5;grid-row:3}
+      [data-value-tone="positive"]{color:var(--success-color,#2e7d32)}[data-value-tone="negative"]{color:var(--warning-color,#e65100)}[data-value-tone="unavailable"]{color:var(--sb-muted)}
       .battery strong{display:flex;flex-wrap:wrap;justify-content:center;column-gap:.25em;white-space:normal}.battery strong>span{white-space:nowrap}
       .flow-state{display:none;margin-top:4px;color:var(--sb-muted);font-size:10px}.system-mode .flow-state{display:block}
-      .line{height:4px;position:relative;background:color-mix(in srgb,var(--sb-text) 22%,var(--sb-surface));border-radius:5px;overflow:hidden}.line i{visibility:hidden;position:absolute;top:0;bottom:0;left:-68px;width:calc(100% + 68px);border-radius:inherit;background:repeating-linear-gradient(90deg,var(--sb-accent) 0 14px,transparent 14px 34px);animation:flow 1s linear infinite;will-change:transform}.line.active i{visibility:visible}.pv-line{grid-column:2;grid-row:1}.grid-line{grid-column:4;grid-row:1}.battery-line{grid-column:2;grid-row:2;transform:rotate(-35deg)}.load-line{grid-column:4;grid-row:2;transform:rotate(35deg)}
+      .line{height:4px;position:relative;background:color-mix(in srgb,var(--sb-text) 22%,var(--sb-surface));border-radius:5px;overflow:hidden}.line[hidden]{display:block!important;visibility:hidden}.line i{visibility:hidden;position:absolute;top:0;bottom:0;left:-68px;width:calc(100% + 68px);border-radius:inherit;background:repeating-linear-gradient(90deg,var(--sb-accent) 0 14px,transparent 14px 34px);animation:flow 1s linear infinite;will-change:transform}.line.active i{visibility:visible}.pv-line{grid-column:2;grid-row:1}.grid-line{grid-column:4;grid-row:1}.battery-line{grid-column:2;grid-row:2;transform:rotate(-35deg)}.load-line{grid-column:4;grid-row:2;transform:rotate(35deg)}
       @keyframes flow{to{transform:translateX(68px)}}
       .soc{margin-top:17px;display:grid;grid-template-columns:80px 1fr;gap:12px;align-items:end}.gauge{height:10px;background:color-mix(in srgb,var(--sb-text) 18%,var(--sb-surface));border-radius:8px;overflow:hidden}.gauge i{display:block;height:100%;width:var(--soc);background:linear-gradient(90deg,#ff7043,#66bb6a);border-radius:8px}.trendbox small{display:block;font-size:10px;color:var(--sb-muted);margin-bottom:2px}.trend{display:block;width:100%;height:38px;border-bottom:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent)}.trend polyline{fill:none;stroke:var(--sb-accent);stroke-width:2}
       .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:16px}.summary div{padding:9px 4px;text-align:center;border:1px solid color-mix(in srgb,var(--sb-text) 10%,transparent);border-radius:10px;background:color-mix(in srgb,var(--sb-text) 6%,var(--sb-surface))}.summary small,.summary b{display:block}.summary small{color:var(--sb-muted);font-size:10px}.summary b{font-size:12px;margin-top:3px}@media(max-width:450px){.summary{grid-template-columns:repeat(2,1fr)}}@media(prefers-reduced-motion:reduce){.line i{animation:none}}
@@ -161,16 +179,16 @@ class SolarBridgeCard extends HTMLElement {
       @media(max-width:450px){.details{grid-template-columns:1fr}}
     </style><ha-card>
       <h2></h2><div class="flow">
-        <div class="node pv" role="group" aria-label="Solar"><span class="icon">☀️</span><b>Solar</b><strong></strong><small class="flow-state"></small></div><div class="line pv-line" role="img"><i></i></div><div class="node inverter" role="group" aria-label="Inverter"><span class="icon">⚡</span><b>Inverter</b><strong></strong><small class="flow-state"></small></div><div class="line grid-line" role="img"><i></i></div><div class="node grid" role="group" aria-label="Grid"><span class="icon">▦</span><b>Grid</b><strong></strong><small class="flow-state"></small></div>
-        <div class="node battery" role="group" aria-label="Battery"><span class="icon">🔋</span><b>Battery</b><strong><span class="battery-soc"><span class="battery-soc-value"></span> <span aria-hidden="true">·</span></span><span class="battery-power"></span></strong><small class="flow-state"></small></div><div class="line battery-line" role="img"><i></i></div><div class="line load-line" role="img"><i></i></div><div class="node load" role="group" aria-label="Home"><span class="icon">⌂</span><b>Home</b><strong></strong><small class="flow-state"></small></div>
-      </div><div class="soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" preserveAspectRatio="none" aria-label="24 hour battery SOC trend"><polyline/></svg></div></div>
-      <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
-      <section class="details" aria-label="System details" hidden>${DETAIL_GROUPS.map(([group, fields]) => `<section class="metric-group" data-group="${escapeHtml(group)}"><h3>${escapeHtml(group)}</h3><dl>${fields.map(([key,label]) => `<div class="metric-row" data-key="${key}" hidden><dt>${label}</dt><dd></dd></div>`).join("")}</dl></section>`).join("")}</section>
+        <div class="node pv entity-item" data-key="pv_power" aria-label="Solar"><span class="icon">☀️</span><b>Solar</b><strong></strong><small class="flow-state"></small></div><div class="line pv-line" role="img"><i></i></div><div class="node inverter entity-item" data-key="inverter_power" aria-label="Inverter"><span class="icon">⚡</span><b>Inverter</b><strong></strong><small class="flow-state"></small></div><div class="line grid-line" role="img"><i></i></div><div class="node grid entity-item" data-key="grid_power" aria-label="Grid"><span class="icon">▦</span><b>Grid</b><strong></strong><small class="flow-state"></small></div>
+        <div class="node battery entity-item" data-key="battery_power" data-fallback-key="battery_soc" aria-label="Battery"><span class="icon">🔋</span><b>Battery</b><strong><span class="battery-soc"><span class="battery-soc-value"></span> <span aria-hidden="true">·</span></span><span class="battery-power"></span></strong><small class="flow-state"></small></div><div class="line battery-line" role="img"><i></i></div><div class="line load-line" role="img"><i></i></div><div class="node load entity-item" data-key="load_power" aria-label="Home"><span class="icon">⌂</span><b>Home</b><strong></strong><small class="flow-state"></small></div>
+      </div><div class="soc entity-item" data-key="battery_soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" preserveAspectRatio="none" aria-label="24 hour battery SOC trend"><polyline/></svg></div></div>
+      <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div class="entity-item" data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
+      <section class="details" aria-label="System details" hidden>${DETAIL_GROUPS.map(([group, fields]) => `<section class="metric-group" data-group="${escapeHtml(group)}"><h3>${escapeHtml(group)}</h3><dl>${fields.map(([key,label]) => `<div class="metric-row entity-item" data-key="${key}" hidden><dt>${label}</dt><dd></dd></div>`).join("")}</dl></section>`).join("")}</section>
     </ha-card>`;
     if (!this._elements) this.cacheElements();
 
     const pv = this.value("pv_power");
-    const inverter = this.config.inverter_power ? this.value("inverter_power") : pv;
+    const inverter = this.value("inverter_power");
     const battery = this.value("battery_power");
     const soc = this.value("battery_soc");
     const load = this.value("load_power");
@@ -186,6 +204,11 @@ class SolarBridgeCard extends HTMLElement {
     text(this._elements.batterySoc, `${soc ?? "—"}%`);
     text(this._elements.batteryPower, formatPower(battery));
     text(this._elements.load, formatPower(load));
+    for (const [key, value] of Object.entries({ pv, inverter, grid, batteryPower: battery, batterySoc: soc, soc, load })) {
+      this.updateValueTone(this._elements.values[key], value);
+    }
+    this._elements.batterySocGroup.hidden = !this.config.battery_soc;
+    this._elements.batteryPower.hidden = !this.config.battery_power;
     text(this._elements.flowStates.pv, this.flowState(pv, "Generating", "Reverse flow"));
     text(this._elements.flowStates.inverter, this.flowState(inverter, "Supplying", "Absorbing", "Standby"));
     text(this._elements.flowStates.grid, this.flowState(grid, "Importing", "Exporting"));
@@ -195,6 +218,12 @@ class SolarBridgeCard extends HTMLElement {
     this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
     this._elements.trend.setAttribute("points", sparklinePoints(this._socHistory || []));
     for (const [key] of CORE_ENTITY_FIELDS.slice(6)) text(this._elements.energy[key], this.energy(key));
+    for (const item of this._elements.entityItems) this.updateEntityItem(item, item.dataset.key, item.dataset.fallbackKey);
+    this._elements.summary.hidden = !CORE_ENTITY_FIELDS.slice(6).some(([key]) => this.config[key]);
+    this._elements.lines[0].hidden = !this.entityId("pv_power") || !this.entityId("inverter_power");
+    this._elements.lines[1].hidden = !this.entityId("grid_power") || !this.entityId("inverter_power");
+    this._elements.lines[2].hidden = !this.entityId("battery_power") || !this.entityId("inverter_power");
+    this._elements.lines[3].hidden = !this.entityId("load_power") || !this.entityId("inverter_power");
     this.updateFlow(this._elements.lines[0], "PV to inverter", pv);
     this.updateFlow(this._elements.lines[1], "Grid flow", grid, true);
     this.updateFlow(this._elements.lines[2], "Battery flow", battery);
@@ -233,13 +262,15 @@ class SolarBridgeCard extends HTMLElement {
   cacheElements() {
     const select = selector => this.shadowRoot.querySelector(selector);
     this._elements = {
-      card: select("ha-card"), details: select(".details"), title: select("h2"),
+      card: select("ha-card"), details: select(".details"), summary: select(".summary"), title: select("h2"),
       pv: select(".pv strong"), inverter: select(".inverter strong"),
       grid: select(".grid strong"), batterySoc: select(".battery-soc-value"),
-      batteryPower: select(".battery-power"), load: select(".load strong"), soc: select(".soc>div>b"),
+      batterySocGroup: select(".battery-soc"), batteryPower: select(".battery-power"),
+      load: select(".load strong"), soc: select(".soc>div>b"),
       gauge: select(".gauge"), trend: select(".trend polyline"), lines: [...this.shadowRoot.querySelectorAll(".line")],
       flowStates: Object.fromEntries(["pv", "inverter", "grid", "battery", "load"].map(key => [key, select(`.${key} .flow-state`)])),
       energy: Object.fromEntries(CORE_ENTITY_FIELDS.slice(6).map(([key]) => [key, select(`.summary [data-key="${key}"] b`)])),
+      entityItems: [...this.shadowRoot.querySelectorAll(".entity-item")],
       detailGroups: DETAIL_GROUPS.map(([group, fields]) => ({
         element: select(`.metric-group[data-group="${group}"]`),
         rows: fields.map(([key, label]) => {
@@ -248,6 +279,21 @@ class SolarBridgeCard extends HTMLElement {
         }),
       })),
     };
+    this._elements.values = {
+      pv: this._elements.pv, inverter: this._elements.inverter, grid: this._elements.grid,
+      batteryPower: this._elements.batteryPower, batterySoc: this._elements.batterySoc,
+      soc: this._elements.soc, load: this._elements.load,
+    };
+    const openDetails = event => {
+      if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
+      const item = event.target.closest?.(".entity-item");
+      if (!item || item.hidden) return;
+      if (event.type === "keydown") event.preventDefault();
+      const entityId = this.entityId(item.dataset.key, item.dataset.fallbackKey);
+      if (entityId) this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
+    };
+    this.shadowRoot.addEventListener("click", openDetails);
+    this.shadowRoot.addEventListener("keydown", openDetails);
   }
 
   updateFlow(line, name, value, reverse = false) {

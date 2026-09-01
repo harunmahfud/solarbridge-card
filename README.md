@@ -13,6 +13,13 @@ The card has no hardcoded SolarBridge entity IDs. It works with any integration 
 
 Add the card in the dashboard UI and use its visual editor to select PV, inverter, battery, load, grid, and optional energy entities. No YAML is required.
 
+Only configured entities are shown. Selecting a topology node, battery trend,
+daily summary, or System detail row opens Home Assistant's standard entity
+details dialog; keyboard users can use Enter or Space. Numeric topology values
+change color with their state: positive values use the theme's success color,
+negative values use its warning color, zero remains neutral, and unavailable
+values use the secondary text color.
+
 ## Presentation modes
 
 - **Overview** (default) preserves the original flow topology, battery trend,
@@ -81,7 +88,7 @@ verified aggregate PV power register.
 | Display | Configuration/input | Raw or calculated behavior |
 | --- | --- | --- |
 | Solar power | `pv_power` | Raw numeric entity state, assumed W; presentation formatting only. |
-| Inverter power | `inverter_power` | Raw numeric entity state, assumed W. The raw `pv_power` value is used as a legacy fallback only when `inverter_power` is omitted. A configured inverter entity that is missing, empty, unknown, unavailable, or non-numeric displays as unavailable. |
+| Inverter power | `inverter_power` | Raw numeric entity state, assumed W. An omitted inverter entity is hidden; a configured entity that is missing, empty, unknown, unavailable, or non-numeric displays as unavailable. |
 | Battery power | `battery_power` | Raw signed numeric entity state, assumed W; presentation formatting only. |
 | Home power | `load_power` | Raw numeric entity state, assumed W; presentation formatting only. |
 | Grid power | `grid_power` | Raw signed numeric entity state, assumed W; presentation formatting only. |

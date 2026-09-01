@@ -179,9 +179,37 @@
       card.setConfig(fallbackConfig);
       card.hass = makeHass({ "sensor.pv": { state: "345" } });
       await waitForUpdate();
-      semantics.omittedInverterFallback = root.querySelector(".inverter strong").textContent === "345 W"
-        && root.querySelector(".inverter .flow-state").textContent === "Supplying";
+      semantics.omittedInverterHidden = root.querySelector(".inverter").hidden
+        && root.querySelector(".pv-line").hidden;
       semantics.semanticUpdatesPreserveIdentity = stableAnimations.every((animation, index) => pulses[index].getAnimations()[0] === animation);
+      card.setConfig(config);
+      card.hass = makeHass();
+      await waitForUpdate();
+
+      const openedEntities = [];
+      card.addEventListener("hass-more-info", event => openedEntities.push(event.detail.entityId));
+      root.querySelector('.summary [data-key="daily_solar"]').click();
+      root.querySelector(".pv").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true }));
+      semantics.detailsPopup = openedEntities.join(",") === "sensor.solar_day,sensor.pv";
+
+      card.hass = makeHass({ "sensor.battery": { state: "-209" }, "sensor.grid": { state: "unavailable" } });
+      await waitForUpdate();
+      semantics.valueColors = root.querySelector(".inverter strong").dataset.valueTone === "positive"
+        && root.querySelector(".battery-power").dataset.valueTone === "negative"
+        && root.querySelector(".pv strong").dataset.valueTone === "idle"
+        && root.querySelector(".grid strong").dataset.valueTone === "unavailable";
+
+      card.setConfig({ pv_power: config.pv_power });
+      card.hass = makeHass();
+      await waitForUpdate();
+      semantics.unassignedHidden = !root.querySelector(".pv").hidden
+        && root.querySelector(".inverter").hidden
+        && root.querySelector(".battery").hidden
+        && root.querySelector(".grid").hidden
+        && root.querySelector(".load").hidden
+        && root.querySelector(".soc").hidden
+        && root.querySelector(".summary").hidden
+        && [...root.querySelectorAll(".line")].every(line => line.hidden);
       card.setConfig(config);
       card.hass = makeHass();
       await waitForUpdate();
