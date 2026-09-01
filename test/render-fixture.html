@@ -64,6 +64,9 @@
         ac_temperature: ["42.1", "°C"], dc_temperature: ["39.4", "°C"], battery_voltage: ["52.4", "V"],
         battery_current: ["-16.4", "A"], battery_temperature: ["29.2", "°C"], daily_battery_charge: ["1.2", "kWh"],
         daily_battery_discharge: ["2.1", "kWh"], total_battery_charge: ["1024.5", "kWh"], total_battery_discharge: ["980.2", "kWh"],
+        bms_charging_voltage: ["51.7", "V"], bms_discharge_voltage: ["0.0", "V"], bms_charge_current_limit: ["80", "A"],
+        bms_discharge_current_limit: ["85", "A"], bms_soc: ["36", "%"], bms_voltage: ["49.65", "V"],
+        bms_current: ["-1", "A"], bms_temperature: ["32.1", "°C"],
         grid_voltage: ["231.0", "V"], grid_current: ["0.22", "A"], grid_frequency: ["50.01", "Hz"], grid_status: ["On-grid"],
         load_voltage: ["230.6", "V"], load_frequency: ["50.00", "Hz"], internal_ct_power: ["48", "W"], external_ct_power: ["52", "W"],
         aux_power: ["0", "W"], total_solar: ["2400.3", "kWh"], total_load: ["2100.7", "kWh"],
@@ -133,8 +136,10 @@
       const detailColumns = new Set([...root.querySelectorAll(".metric-group")].filter(group => !group.hidden).map(group => Math.round(group.getBoundingClientRect().left))).size;
       const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
       const viewModeCorrect = systemView
-        ? !details.hidden && visibleDetailRows.length === 31 && detailColumns === (innerWidth <= 450 ? 1 : 2)
+        ? !details.hidden && visibleDetailRows.length === 39 && detailColumns === (innerWidth <= 450 ? 1 : 2)
           && root.querySelector('.metric-row[data-key="inverter_voltage"] dd').textContent === "230.1 V"
+          && root.querySelector('.metric-row[data-key="bms_current"] dd').textContent === "-1 A"
+          && root.querySelector('.metric-row[data-key="bms_temperature"] dd').textContent === "32.1 °C"
           && root.querySelector('.metric-row[data-key="running_status"] dd').getAttribute("aria-label") === "Running status: Unavailable"
           && root.querySelector(".inverter .flow-state").textContent === "Supplying"
           && root.querySelector(".battery .flow-state").textContent === "Discharging"
@@ -305,7 +310,7 @@
         batteryValueContained: battery.scrollWidth <= battery.clientWidth,
         dailyValuesRaw: summaries.map(item => item.querySelector("b").textContent).join(",") === "0.9 kWh,2.3 kWh,2.6 kWh,0.0 kWh" && statisticsCalls === 0,
         editorDropdownPreserved: editor.querySelector("ha-entity-picker") === openPicker && openPicker.menuOpen && document.activeElement === openPicker,
-        editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 41 && editor.querySelector("select").value === (systemView ? "system" : "overview"),
+        editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 49 && editor.querySelector("select").value === (systemView ? "system" : "overview"),
         viewMode: viewModeCorrect,
         ...semantics,
         ...lifecycle,

@@ -57,6 +57,12 @@ const DETAIL_GROUPS = [
     ["daily_battery_discharge", "Daily battery discharge"], ["total_battery_charge", "Total battery charge"],
     ["total_battery_discharge", "Total battery discharge"],
   ]],
+  ["Battery management system", [
+    ["bms_charging_voltage", "BMS charging voltage"], ["bms_discharge_voltage", "BMS discharge voltage"],
+    ["bms_charge_current_limit", "BMS charge current limit"], ["bms_discharge_current_limit", "BMS discharge current limit"],
+    ["bms_soc", "BMS SOC"], ["bms_voltage", "BMS voltage"], ["bms_current", "BMS current"],
+    ["bms_temperature", "BMS temperature"],
+  ]],
   ["Grid and load", [
     ["grid_voltage", "Grid voltage"], ["grid_current", "Grid current"], ["grid_frequency", "Grid frequency"],
     ["grid_status", "Grid-connected status"], ["load_voltage", "Load voltage"], ["load_frequency", "Load frequency"],

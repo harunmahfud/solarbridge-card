@@ -2,17 +2,16 @@
 
 This inventory was traced against the `deye_sg05lp1_eu_sm2_p` profile in
 `harunmahfud/ha-solarbridge`, the integration's generic profile-driven sensor
-creation, and its English entity translations. It includes the proposed
-`inverter_output_voltage` entity from `ha-solarbridge` PR #3. The audited
-profile exposes 72 entities: 40 live or accumulated system metrics supported
-by this card and 32 identity, raw, or time-of-use diagnostics deliberately not
-offered as card fields.
+creation, and its English entity translations at `ha-solarbridge` v0.1.9. The
+audited profile exposes 80 entities: 48 live or accumulated system metrics
+supported by this card and 32 identity, raw, or time-of-use diagnostics
+deliberately not offered as card fields.
 
 The card does not depend on generated Home Assistant entity IDs. Users select
 entities explicitly, so the table maps integration profile keys to card
 configuration fields.
 
-## Supported system metrics (40)
+## Supported system metrics (48)
 
 All values below are raw Home Assistant entity states. The card does not sum
 PV strings, derive a power balance, adjust signs, or convert units. The
@@ -44,7 +43,7 @@ respectively. The README contains the complete node label/direction table.
 | `total_production` | `total_solar` | System detail · Lifetime energy |
 | `daily_production` | `daily_solar` | Overview summary (also remains visible in System detail) |
 | `grid_voltage` | `grid_voltage` | System detail · Grid and load |
-| `inverter_output_voltage` | `inverter_voltage` | System detail · Inverter; requires `ha-solarbridge` PR #3 or another suitable entity |
+| `inverter_output_voltage` | `inverter_voltage` | System detail · Inverter |
 | `load_voltage` | `load_voltage` | System detail · Grid and load |
 | `grid_current` | `grid_current` | System detail · Grid and load |
 | `inverter_current` | `inverter_current` | System detail · Inverter |
@@ -67,6 +66,19 @@ respectively. The README contains the complete node label/direction table.
 | `pv1_current` | `pv1_current` | System detail · Solar strings |
 | `pv2_voltage` | `pv2_voltage` | System detail · Solar strings |
 | `pv2_current` | `pv2_current` | System detail · Solar strings |
+| `bms_charging_voltage` | `bms_charging_voltage` | System detail · Battery management system |
+| `bms_discharge_voltage` | `bms_discharge_voltage` | System detail · Battery management system |
+| `bms_charge_current_limit` | `bms_charge_current_limit` | System detail · Battery management system |
+| `bms_discharge_current_limit` | `bms_discharge_current_limit` | System detail · Battery management system |
+| `bms_soc` | `bms_soc` | System detail · Battery management system |
+| `bms_voltage` | `bms_voltage` | System detail · Battery management system |
+| `bms_current` | `bms_current` | System detail · Battery management system |
+| `bms_temperature` | `bms_temperature` | System detail · Battery management system |
+
+The BMS voltage is reported by the battery management system and is distinct
+from `battery_voltage`, which is measured at the inverter battery terminals.
+The card therefore exposes both as separate fields and does not substitute one
+for the other.
 
 `pv_power` is an explicitly selected topology input, not an integration
 profile key. The current SolarBridge profile has separate `pv1_power` and

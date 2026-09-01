@@ -11,7 +11,9 @@ const supported = [
   "internal_ct_power", "grid_power", "external_ct_power", "inverter_power", "load_power",
   "battery_temperature", "battery_voltage", "battery_soc", "pv1_power", "pv2_power", "battery_power",
   "battery_current", "load_frequency", "grid_connected_status", "pv1_voltage", "pv1_current",
-  "pv2_voltage", "pv2_current",
+  "pv2_voltage", "pv2_current", "bms_charging_voltage", "bms_discharge_voltage",
+  "bms_charge_current_limit", "bms_discharge_current_limit", "bms_soc", "bms_voltage", "bms_current",
+  "bms_temperature",
 ];
 
 const excluded = [
@@ -26,8 +28,8 @@ test("entity audit accounts for the complete SolarBridge profile", async () => {
   const audit = await readFile(new URL("../ENTITY_AUDIT.md", import.meta.url), "utf8");
   const inventory = [...supported, ...excluded];
 
-  assert.equal(supported.length, 40);
+  assert.equal(supported.length, 48);
   assert.equal(excluded.length, 32);
-  assert.equal(new Set(inventory).size, 72);
+  assert.equal(new Set(inventory).size, 80);
   for (const key of inventory) assert.match(audit, new RegExp(`\\b${key}\\b`), `${key} is documented`);
 });
