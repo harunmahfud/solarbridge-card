@@ -29,3 +29,14 @@ test("creates smooth, time-based sparkline paths", () => {
   assert.equal(paths.line, "M 2.0 18.0 C 11.6 18.0 16.4 10.0 26.0 10.0 C 54.8 10.0 69.2 2.0 98.0 2.0");
   assert.equal(paths.area, `${paths.line} L 98.0 20 L 2.0 20 Z`);
 });
+
+test("history gaps break both trace and fill without inventing zero volts", () => {
+  const paths = sparklinePaths([
+    { value: 48, time: 0 }, { value: 52, time: 20 },
+    { value: null, time: 40 }, { value: "unavailable", time: 50 },
+    { value: 50, time: 80 }, { value: 49, time: 100 },
+  ], 104, 24, 0, 100);
+  assert.equal(paths.line, "M 2.0 22.0 C 10.0 22.0 14.0 2.0 22.0 2.0 M 82.0 12.0 C 90.0 12.0 94.0 17.0 102.0 17.0");
+  assert.equal((paths.area.match(/ Z/g) || []).length, 2);
+  assert.deepEqual(sparklinePaths([{ value: null, time: 0 }, { value: "", time: 1 }]), { line: "", area: "" });
+});

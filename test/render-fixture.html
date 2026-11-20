@@ -2,10 +2,11 @@
 <html>
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; padding: 18px; background: var(--page-background); }
-      solarbridge-card { width: 100%; max-width: 500px; }
+      solarbridge-card { width: 100%; max-width: 760px; }
       solarbridge-card-editor { position: fixed; left: -10000px; }
       #result { display: none; }
     </style>
@@ -39,6 +40,7 @@
         "--primary-color": "#0288d1",
       };
       for (const [name, value] of Object.entries(theme)) document.documentElement.style.setProperty(name, value);
+      document.documentElement.style.colorScheme = dark ? "dark" : "light";
 
       const ids = ["pv", "inverter", "battery", "soc", "load", "grid", "solar_day", "load_day", "import_day", "export_day"];
       const config = {
@@ -84,6 +86,7 @@
         },
       });
       const card = document.querySelector("solarbridge-card");
+      if (params.has("width")) card.style.width = `${Number(params.get("width"))}px`;
       card.setConfig(config);
       card.hass = makeHass();
       const editor = document.querySelector("solarbridge-card-editor");
@@ -113,14 +116,14 @@
       const root = card.shadowRoot;
       const summaries = [...root.querySelectorAll(".summary div")];
       const lines = [...root.querySelectorAll(".line")];
-      const pulses = lines.map(line => line.querySelector("i"));
+      const pulses = lines.map(line => line.querySelector(".pulse"));
       const animations = pulses.map(pulse => pulse.getAnimations()[0]);
-      const summaryBackground = getComputedStyle(summaries[0]).backgroundColor;
+      const summaryBackground = getComputedStyle(root.querySelector("ha-card")).backgroundColor;
       const labelContrast = contrast(getComputedStyle(summaries[0].querySelector("small")).color, summaryBackground);
       const valueContrast = contrast(getComputedStyle(summaries[0].querySelector("b")).color, summaryBackground);
-      const animationOffsets = [...root.querySelector("style").textContent.matchAll(/@keyframes flow\{to\{transform:translateX\((-?\d+)px/g)].map(match => Number(match[1]));
-      const pulseBackgrounds = lines.map(line => getComputedStyle(line.querySelector("i")).backgroundImage);
-      const pulseWidths = lines.map(line => [line.clientWidth, line.querySelector("i").clientWidth]);
+      const animationOffsets = [...root.querySelector("style").textContent.matchAll(/@keyframes flow\{to\{stroke-dashoffset:(-?\d+)/g)].map(match => Number(match[1]));
+      const pulsePatterns = pulses.map(pulse => getComputedStyle(pulse).strokeDasharray);
+      const fullConnectors = lines.every(line => line.querySelector(".pulse").getAttribute("d") === line.querySelector(".track").getAttribute("d") && line.querySelector(".pulse").getTotalLength() > 0);
       const summaryColumns = new Set(summaries.map(item => Math.round(item.getBoundingClientRect().left))).size;
       const hostWidth = Math.round(card.getBoundingClientRect().width);
       const battery = root.querySelector(".battery");
@@ -129,7 +132,7 @@
       const detailColumns = new Set([...root.querySelectorAll(".metric-group")].filter(group => !group.hidden).map(group => Math.round(group.getBoundingClientRect().left))).size;
       const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
       const viewModeCorrect = systemView
-        ? !details.hidden && visibleDetailRows.length === 39 && detailColumns === (innerWidth <= 450 ? 1 : 2)
+        ? !details.hidden && visibleDetailRows.length === 39 && detailColumns === (hostWidth <= 480 ? 1 : 2)
           && root.querySelector('.metric-row[data-key="inverter_voltage"] dd').textContent === "230.1 V"
           && root.querySelector('.metric-row[data-key="bms_current"] dd').textContent === "-1 A"
           && root.querySelector('.metric-row[data-key="bms_temperature"] dd').textContent === "32.1 °C"
@@ -137,7 +140,7 @@
           && root.querySelector(".inverter .flow-state").textContent === "Supplying"
           && root.querySelector(".battery .flow-state").textContent === "Discharging"
           && root.querySelector(".grid .flow-state").textContent === "Importing"
-        : details.hidden && getComputedStyle(root.querySelector(".pv .flow-state")).display === "none";
+        : details.hidden && !root.querySelector(".pv .flow-state").hidden && root.querySelector(".inverter strong").hidden;
       const lifecycle = {};
       const semantics = {};
 
@@ -234,7 +237,7 @@
         await waitForUpdate();
         lifecycle.updatesCoalesced = renderCalls === 1;
         lifecycle.refreshIdentity = lines.every((line, index) => root.querySelectorAll(".line")[index] === line)
-          && pulses.every((pulse, index) => root.querySelectorAll(".line i")[index] === pulse)
+          && pulses.every((pulse, index) => root.querySelectorAll(".line .pulse")[index] === pulse)
           && animations.every((animation, index) => pulses[index].getAnimations()[0] === animation);
         lifecycle.refreshContinuity = animations.every((animation, index) => Math.abs(animation.currentTime - beforeRefresh[index]) < 100);
 
@@ -382,6 +385,145 @@
       await waitForUpdate();
       semantics.voltageHistoryLoaded = root.querySelector(".trend-line").getAttribute("d").includes(" C ");
 
+      const dailyValuesRaw = summaries.map(item => item.querySelector("b").textContent).join(",") === "0.9 kWh,2.3 kWh,2.6 kWh,0.0 kWh" && statisticsCalls === 0;
+      const captured = {
+        "sensor.pv": { state: "91" }, "sensor.inverter": { state: "-153" },
+        "sensor.grid": { state: "608" }, "sensor.battery": { state: "-243" },
+        "sensor.load": { state: "455" }, "sensor.voltage": { state: "50.88", attributes: { unit_of_measurement: "V" } },
+      };
+      const redesign = {};
+      for (const style of ["hub", "minimal", "horizontal"]) {
+        for (const display of ["compact", "detailed"]) {
+          card.setConfig({ ...modeConfig, display_mode: display, flow_style: style });
+          card.hass = modeHass(captured);
+          await waitForUpdate();
+          const visible = element => !element.hidden && getComputedStyle(element).display !== "none";
+          redesign[`${style}-${display}-captured`] = root.querySelector(".pv strong").textContent === "91 W"
+            && root.querySelector(".grid strong").textContent === "608 W"
+            && root.querySelector(".load strong").textContent === "455 W"
+            && root.querySelector(".battery-power").textContent === "243 W"
+            && root.querySelector(".battery .flow-state").textContent === "Charging"
+            && root.querySelector(".grid .flow-state").textContent === "Importing"
+            && details.hidden === (display === "compact")
+            && visible(root.querySelector(".soc")) === (display === "detailed")
+            && visible(root.querySelector(style === "hub" ? ".inverter strong" : ".inverter-reading")) === (display === "detailed")
+            && root.querySelector(".inverter strong").textContent === "-153 W"
+            && row("bms_soc").hidden
+            && root.querySelector(".bar-label b").textContent === "699 W";
+          redesign[`${style}-${display}-contrast`] = ["pv", "grid", "battery", "load"].every(name => contrast(getComputedStyle(root.querySelector(`.node.${name} .flow-state`)).color, summaryBackground) >= 4.5);
+          redesign[`${style}-${display}-layout`] = root.querySelector("ha-card").scrollWidth <= hostWidth
+            && [...root.querySelectorAll(".node:not(.inverter)")].every(node => {
+              const value = node.querySelector("strong").getBoundingClientRect(), box = node.getBoundingClientRect();
+              const state = node.querySelector(".flow-state").getBoundingClientRect(), cardBox = card.getBoundingClientRect();
+              return value.left >= box.left && value.right <= box.right && state.left >= cardBox.left && state.right <= cardBox.right;
+            });
+          if (style !== "minimal") {
+            const rate = index => pulses[index].getAnimations()[0]?.playbackRate;
+            const arrows = lines.map(line => line.querySelector(".arrow").getAttribute("transform"));
+            const directions = reducedMotion || (rate(0) > 0 && rate(1) < 0 && rate(2) < 0 && rate(3) > 0);
+            card.hass = modeHass({ ...captured, "sensor.grid": { state: "-900" }, "sensor.battery": { state: "380" } });
+            await waitForUpdate();
+            redesign[`${style}-${display}-reverse`] = directions && (reducedMotion || (rate(1) > 0 && rate(2) > 0))
+              && lines[1].querySelector(".arrow").getAttribute("transform") !== arrows[1]
+              && lines[2].querySelector(".arrow").getAttribute("transform") !== arrows[2]
+              && root.querySelector(".grid .flow-state").textContent === "Exporting"
+              && root.querySelector(".battery .flow-state").textContent === "Discharging";
+            if (!reducedMotion) {
+              card.style.display = "none"; void card.offsetWidth;
+              card.style.display = ""; void card.offsetWidth;
+              card.hass = modeHass(captured);
+              await waitForUpdate();
+              redesign[`${style}-${display}-recreated`] = rate(1) < 0 && rate(2) < 0;
+            }
+          }
+          card.hass = modeHass({ ...captured, "sensor.grid": { state: "0" }, "sensor.battery": { state: "unavailable" } });
+          await waitForUpdate();
+          redesign[`${style}-${display}-idle-unavailable`] = !lines[1].classList.contains("active") && !lines[2].classList.contains("active")
+            && root.querySelector(".grid .flow-state").textContent === "Idle" && root.querySelector(".grid strong").textContent === "0 W"
+            && root.querySelector(".battery .flow-state").textContent === "Unavailable" && root.querySelector(".battery-power").textContent === "—"
+            && root.querySelector(".bar-label b").textContent === "91 W known";
+        }
+      }
+      card.setConfig({ ...modeConfig, display_mode: "compact", flow_style: "minimal" });
+      card.hass = modeHass({ ...captured, "sensor.pv": { state: "0" }, "sensor.grid": { state: "120" }, "sensor.battery": { state: "380" } });
+      await waitForUpdate();
+      redesign.incomingIncludesDischarge = root.querySelector(".bar-label b").textContent === "500 W";
+      card.hass = modeHass({ ...captured, "sensor.pv": { state: "0" }, "sensor.grid": { state: "0" }, "sensor.battery": { state: "0" } });
+      await waitForUpdate();
+      redesign.zeroIncomingIsZero = root.querySelector(".bar-label b").textContent === "0 W";
+      card.setConfig({ display_mode: "detailed", pv1_voltage: config.pv_power, aux_power: config.grid_power });
+      card.hass = modeHass(captured);
+      await waitForUpdate();
+      redesign.partialDetails = !details.hidden && [...root.querySelectorAll(".metric-group")].filter(group => !group.hidden).length === 2
+        && !row("pv1_voltage").hidden && !row("aux_power").hidden && row("inverter_voltage").hidden;
+      const toggleConfig = { ...modeConfig, display_mode: "auto", flow_style: "minimal", show_mode_toggle: true };
+      card.setConfig(toggleConfig);
+      card.hass = modeHass(captured);
+      await waitForUpdate();
+      let configEvents = 0;
+      card.addEventListener("config-changed", () => configEvents++);
+      root.querySelector('[data-mode="compact"]').click();
+      await waitForUpdate();
+      const secondCard = document.createElement("solarbridge-card");
+      secondCard.setConfig({ ...toggleConfig, title: "Same sensors, another title" });
+      secondCard.hass = modeHass(captured);
+      document.body.append(secondCard);
+      await waitForUpdate();
+      redesign.togglePersistsWithoutYaml = details.hidden && secondCard.shadowRoot.querySelector(".details").hidden
+        && secondCard.shadowRoot.querySelector('[data-mode="compact"]').getAttribute("aria-pressed") === "true"
+        && configEvents === 0 && root.querySelector("ha-card").dataset.style === "minimal";
+      secondCard.remove();
+      card.setConfig({ ...toggleConfig, show_mode_toggle: false });
+      await waitForUpdate();
+      redesign.toggleOffIgnoresPreference = root.querySelector(".mode-toggle").hidden && !details.hidden;
+      localStorage.clear();
+      card.setConfig(toggleConfig);
+      await waitForUpdate();
+      const save = Storage.prototype.setItem;
+      Storage.prototype.setItem = () => { throw new Error("Storage disabled"); };
+      root.querySelector('[data-mode="compact"]').click();
+      await waitForUpdate();
+      redesign.toggleWorksWithoutStorage = details.hidden;
+      Storage.prototype.setItem = save;
+
+      const beforeTheme = getComputedStyle(root.querySelector(".grid .flow-state")).color;
+      card.hass = { ...modeHass(captured), themes: { darkMode: !dark } };
+      redesign.liveTheme = card.style.colorScheme === (dark ? "light" : "dark") && getComputedStyle(root.querySelector(".grid .flow-state")).color !== beforeTheme;
+      card.hass = { ...modeHass(captured), themes: { darkMode: dark } };
+
+      card.setConfig({ ...modeConfig, display_mode: "detailed" });
+      const batteryDetails = root.querySelector('.metric-group[data-group="Battery"]');
+      batteryDetails.open = false;
+      batteryDetails.querySelector("summary").click();
+      card.hass = modeHass(captured);
+      await waitForUpdate();
+      redesign.expandableDetailsKeepUserChoice = batteryDetails.open && row("battery_voltage").querySelector("dd").textContent === "50.88 V";
+      batteryDetails.open = hostWidth > 480;
+
+      let historyRequest;
+      card.setConfig({ ...modeConfig, display_mode: "detailed", battery_voltage: "sensor.gap_voltage" });
+      card.hass = { ...modeHass({ "sensor.gap_voltage": { state: "50.88" } }), callApi: async (method, path) => {
+        historyRequest = { method, path };
+        return [[historyPoint(49.1, 23), historyPoint(49.8, 18), historyPoint("unavailable", 12), historyPoint(50.2, 6)]];
+      } };
+      await waitForUpdate();
+      redesign.realHistoryContractWithGap = historyRequest.method === "GET" && historyRequest.path.startsWith("history/period/")
+        && historyRequest.path.includes("filter_entity_id=sensor.gap_voltage") && historyRequest.path.includes("end_time=")
+        && (root.querySelector(".trend-line").getAttribute("d").match(/M /g) || []).length === 2
+        && [...root.querySelectorAll(".chart-axes text")].filter(text => text.textContent.includes(" V")).length === 3
+        && [...root.querySelectorAll(".chart-axes text")].filter(text => text.textContent.includes(":")).length === (hostWidth <= 480 ? 3 : 5);
+      const timeLabels = [...root.querySelectorAll(".chart-axes text")].filter(text => text.textContent.includes(":"));
+      redesign.readableHistoryTimestamps = timeLabels.every((label, index) => index === 0 || timeLabels[index - 1].getBoundingClientRect().right < label.getBoundingClientRect().left)
+        && timeLabels[0].querySelector("tspan") && timeLabels.at(-1).querySelector("tspan") ? true : false;
+      let editedConfig;
+      editor.addEventListener("config-changed", event => { editedConfig = event.detail.config; });
+      for (const [key, value] of [["display_mode", "compact"], ["flow_style", "horizontal"], ["show_mode_toggle", "true"]]) {
+        const field = editor.querySelector(`select[data-key="${key}"]`);
+        field.value = value;
+        field.dispatchEvent(new Event("change"));
+        redesign[`editor-${key}`] = editedConfig[key] === (key === "show_mode_toggle" ? true : value) && editedConfig.grid_power === config.grid_power;
+      }
+
       const batteryPreview = params.get("battery");
       const modePreview = ["voltage", "unknown", "none", "missing"].includes(batteryPreview);
       card.setConfig(modePreview ? { ...modeConfig, view_mode: config.view_mode } : config);
@@ -395,21 +537,51 @@
         const batteryBounds = battery.getBoundingClientRect();
         semantics.voltageValueContained = valueBounds.left >= batteryBounds.left && valueBounds.right <= batteryBounds.right;
       }
+      if (params.has("display")) {
+        const previewReadings = {
+          pv1_power: "91", pv1_voltage: "141.1", pv1_current: "0.6", pv2_power: "0", pv2_voltage: "1.6", pv2_current: "0.0",
+          inverter_voltage: "220.7", inverter_current: "1.0", running_status: "Normal", ac_temperature: "40.9", dc_temperature: "44.2",
+          battery_voltage: "50.88", battery_current: "-4.78", battery_temperature: "25.0", daily_battery_charge: "7.8", daily_battery_discharge: "1.7",
+          total_battery_charge: "671.2", total_battery_discharge: "599.8", grid_voltage: "220.7", grid_current: "2.97", grid_frequency: "50.03",
+          grid_status: "On-grid", load_voltage: "222.0", load_frequency: "50.03", internal_ct_power: "608", external_ct_power: "620",
+          aux_power: "0", total_solar: "1234.1", total_load: "2232.1", total_grid_import: "1207.2", total_grid_export: "0.2",
+        };
+        const detailOverrides = Object.fromEntries(Object.entries(previewReadings).filter(([key]) => config[key]).map(([key, state]) => [config[key], { ...states[config[key]], state }]));
+        const scenario = params.get("scenario");
+        const scenarioStates = scenario === "export" ? { "sensor.pv": { state: "3200" }, "sensor.grid": { state: "-900" }, "sensor.battery": { state: "-1400" }, "sensor.load": { state: "900" } }
+          : scenario === "night" ? { "sensor.pv": { state: "0" }, "sensor.grid": { state: "120" }, "sensor.battery": { state: "380" }, "sensor.load": { state: "500" } }
+          : scenario === "unavailable" ? { "sensor.grid": { state: "unavailable" } }
+          : scenario === "zero" ? Object.fromEntries(["pv", "grid", "battery", "load"].map(key => [`sensor.${key}`, { state: "0" }])) : {};
+        card.setConfig({ ...modeConfig, title: "SolarBridge", view_mode: config.view_mode, display_mode: params.get("display"), flow_style: params.get("style") || "hub", show_mode_toggle: params.get("toggle") !== "off", battery_voltage: "sensor.preview_voltage" });
+        card.hass = { ...modeHass({ ...detailOverrides, ...captured, ...scenarioStates,
+          "sensor.preview_voltage": { state: "50.88", attributes: { unit_of_measurement: "V" } },
+          "sensor.solar_day": { state: "8.6" }, "sensor.load_day": { state: "9.4" }, "sensor.import_day": { state: "7.6" }, "sensor.export_day": { state: "0" },
+          "sensor.shutdown_v": { state: "45.5", attributes: { unit_of_measurement: "V" } },
+          "sensor.restart_v": { state: "48.0", attributes: { unit_of_measurement: "V" } },
+          "sensor.low_v": { state: "47.0", attributes: { unit_of_measurement: "V" } },
+        }), callApi: async () => [Array.from({ length: 97 }, (_, index) => {
+          const value = index >= 88 ? 49.23 + (index - 88) / 8 * 1.65 : 50.2 + 1.6 * Math.sin((index - 30) / 96 * Math.PI * 2) - (index === 61 ? 1.1 : 0);
+          return historyPoint(index >= 70 && index <= 74 ? "unavailable" : value, 24 - index / 4);
+        })] };
+        await waitForUpdate();
+        if (params.get("expand") === "all") root.querySelectorAll(".metric-group").forEach(group => { group.open = true; });
+      }
       const tests = {
         labelContrast: labelContrast >= 4.5,
         valueContrast: valueContrast >= 4.5,
-        seamlessLoopOffset: animationOffsets.join(",") === "68" && animationOffsets.every(offset => Math.abs(offset) % 34 === 0),
-        seamlessPattern: pulseBackgrounds.every(value => value.includes("repeating-linear-gradient")),
-        fullConnectorPulse: pulseWidths.every(([line, pulse]) => Math.abs(pulse - line - 68) <= 1),
-        responsiveColumns: summaryColumns === (innerWidth <= 450 ? 2 : 4),
+        seamlessLoopOffset: animationOffsets.join(",") === "-68" && animationOffsets.every(offset => Math.abs(offset) % 34 === 0),
+        seamlessPattern: pulsePatterns.every(value => value === "14px, 20px"),
+        fullConnectorPulse: fullConnectors,
+        responsiveColumns: summaryColumns === (hostWidth <= 480 ? 2 : 4),
         noHorizontalOverflow: root.querySelector("ha-card").scrollWidth <= hostWidth,
         batteryValueContained: battery.scrollWidth <= battery.clientWidth,
-        dailyValuesRaw: summaries.map(item => item.querySelector("b").textContent).join(",") === "0.9 kWh,2.3 kWh,2.6 kWh,0.0 kWh" && statisticsCalls === 0,
+        dailyValuesRaw,
         editorDropdownPreserved: editor.querySelector("ha-entity-picker") === openPicker && openPicker.menuOpen && document.activeElement === openPicker,
-        editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 57 && editor.querySelector("select").value === (systemView ? "system" : "overview"),
+        editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 57 && editor.querySelector('[data-key="view_mode"]').value === (systemView ? "system" : "overview"),
         viewMode: viewModeCorrect,
         ...semantics,
         ...lifecycle,
+        ...redesign,
       };
       document.querySelector("#result").textContent = JSON.stringify({
         theme: dark ? "dark" : "light", width: innerWidth, tests,
