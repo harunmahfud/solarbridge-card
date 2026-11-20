@@ -114,8 +114,10 @@ preserved; battery chemistry and BMS SOC are never used to guess the mode.
   label, and voltage history. The percentage gauge and BMS detail group are
   hidden. No voltage-to-SOC percentage is invented.
 - **Capacity:** retains configured aggregate SOC text. Auto retains the existing
-  percentage gauge and SOC history; no new SOC or power trend is introduced in
-  Compact/Detailed.
+  percentage gauge and SOC history when SOC is configured, falling back to
+  configured voltage history otherwise. Detailed shows configured voltage
+  history independently of the SOC reading; no new SOC or power trend is
+  introduced in Compact/Detailed.
 - **No battery:** hides the battery node, connector, and level/history section.
 - **Unknown/unavailable mode:** keeps configured battery power visible, labels
   the mode unavailable, and hides the level/history rather than showing stale SOC.
@@ -181,7 +183,14 @@ to zero. HA event history can legitimately be sparse while a value is unchanged;
 elapsed time alone is not treated as an outage. Missing Recorder history shows
 **No history available**. Detailed enlarges the voltage chart with voltage axes
 and local-time timestamps; Compact hides history and Auto preserves its legacy
-placement and active battery metric. No example trace is shipped in the card.
+placement and active battery metric (with voltage history as a fallback when
+SOC is not configured). A Capacity-mode update does not remove a configured
+Detailed voltage chart or switch its source to SOC. No example trace is shipped
+in the card.
+
+Editor sections retain their open/closed state and focused controls when an
+entity selection is saved back into the editor. The card's technical groups
+also retain user expansion choices across live updates and configuration edits.
 
 ### Power signs and status labels
 
