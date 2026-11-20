@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const supported = [
+  "battery_mode", "battery_type", "battery_shutdown_voltage", "battery_restart_voltage",
+  "battery_low_voltage", "battery_shutdown_soc", "battery_restart_soc", "battery_low_soc",
   "running_status", "daily_battery_charge", "daily_battery_discharge", "total_battery_charge",
   "total_battery_discharge", "daily_grid_bought", "daily_grid_sold", "grid_frequency",
   "total_grid_bought", "total_grid_sold", "daily_load_consumption", "total_load_consumption",
@@ -21,6 +23,7 @@ const excluded = [
   ...Array.from({ length: 6 }, (_, index) => `tou_time_${index + 1}`),
   ...Array.from({ length: 6 }, (_, index) => `tou_power_${index + 1}`),
   ...Array.from({ length: 6 }, (_, index) => `tou_soc_${index + 1}`),
+  ...Array.from({ length: 6 }, (_, index) => `tou_voltage_${index + 1}`),
   ...Array.from({ length: 6 }, (_, index) => [`tou_${index + 1}_grid_charge`, `tou_${index + 1}_generator_charge`]).flat(),
 ];
 
@@ -28,8 +31,8 @@ test("entity audit accounts for the complete SolarBridge profile", async () => {
   const audit = await readFile(new URL("../ENTITY_AUDIT.md", import.meta.url), "utf8");
   const inventory = [...supported, ...excluded];
 
-  assert.equal(supported.length, 48);
-  assert.equal(excluded.length, 32);
-  assert.equal(new Set(inventory).size, 80);
+  assert.equal(supported.length, 56);
+  assert.equal(excluded.length, 38);
+  assert.equal(new Set(inventory).size, 94);
   for (const key of inventory) assert.match(audit, new RegExp(`\\b${key}\\b`), `${key} is documented`);
 });

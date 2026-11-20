@@ -35,8 +35,8 @@ test("renders accessibly in light/dark themes at desktop/mobile sizes", async ()
     for (const view of ["overview", "system"]) {
       for (const theme of ["light", "dark"]) {
         for (const [width, height] of [[554, 900], [390, 1200]]) {
-          const url = `http://127.0.0.1:${port}/test/render-fixture.html?theme=${theme}&view=${view}`;
-          const common = ["--headless", "--no-sandbox", "--disable-gpu", `--window-size=${width},${height}`, "--hide-scrollbars", "--virtual-time-budget=2000"];
+          const url = `http://127.0.0.1:${port}/test/render-fixture.html?theme=${theme}&view=${view}&battery=${view === "overview" ? "voltage" : "capacity"}`;
+          const common = ["--headless", "--no-sandbox", "--disable-gpu", `--window-size=${width},${height}`, "--hide-scrollbars", "--virtual-time-budget=4000"];
           const { stdout } = await execFileAsync(chrome, [...common, "--dump-dom", url], { maxBuffer: 2 ** 20 });
           const match = stdout.match(/<pre id="result">([^<]+)<\/pre>/);
           assert.ok(match, `render results exist for ${view}, ${theme} at ${width}px`);
@@ -53,7 +53,7 @@ test("renders accessibly in light/dark themes at desktop/mobile sizes", async ()
     }
 
     const reducedUrl = `http://127.0.0.1:${port}/test/render-fixture.html?theme=dark&view=system`;
-    const reducedArgs = ["--headless", "--no-sandbox", "--disable-gpu", "--window-size=390,720", "--force-prefers-reduced-motion", "--virtual-time-budget=2000", "--dump-dom", reducedUrl];
+    const reducedArgs = ["--headless", "--no-sandbox", "--disable-gpu", "--window-size=390,720", "--force-prefers-reduced-motion", "--virtual-time-budget=4000", "--dump-dom", reducedUrl];
     const { stdout } = await execFileAsync(chrome, reducedArgs, { maxBuffer: 2 ** 20 });
     const match = stdout.match(/<pre id="result">([^<]+)<\/pre>/);
     assert.ok(match, "reduced-motion render results exist");
