@@ -3,15 +3,15 @@
 This inventory was traced against the `deye_sg05lp1_eu_sm2_p` profile in
 `harunmahfud/ha-solarbridge`, the integration's generic profile-driven sensor
 creation, and its English entity translations, including the battery-mode
-additions. The audited profile exposes 94 entities: 56 system metrics/settings
-supported by this card and 38 identity, raw, or time-of-use diagnostics
+additions. The audited profile exposes 94 entities: 92 system metrics/settings
+supported by this card and 2 identity or raw diagnostics
 deliberately not offered as card fields.
 
 The card does not depend on generated Home Assistant entity IDs. Users select
 entities explicitly, so the table maps integration profile keys to card
 configuration fields.
 
-## Supported system metrics and battery settings (56)
+## Supported system metrics and settings (92)
 
 All values below are raw Home Assistant entity states. The card does not sum
 PV strings, derive a power balance, adjust signs, or convert units. The
@@ -100,19 +100,28 @@ profile key. The current SolarBridge profile has separate `pv1_power` and
 `pv1_power` for `pv_power`, as in the example, displays only that raw string
 value; the card never silently adds PV1 and PV2.
 
-## Deliberately excluded entities (38)
+## Time-of-use settings (included in the 92 supported entities)
+
+These optional fields appear in Time of use 1–6 detail groups and in the visual
+editor. They display live HA states, not a separately cached schedule. Voltage
+targets appear only in Voltage mode; SOC targets appear only in Capacity mode.
+
+| SolarBridge profile keys | Card fields | Presentation |
+| --- | --- | --- |
+| `tou_time_1`, `tou_time_2`, `tou_time_3`, `tou_time_4`, `tou_time_5`, `tou_time_6` | Same keys | Slot start times |
+| `tou_power_1`, `tou_power_2`, `tou_power_3`, `tou_power_4`, `tou_power_5`, `tou_power_6` | Same keys | Power targets (not measurements) |
+| `tou_soc_1`, `tou_soc_2`, `tou_soc_3`, `tou_soc_4`, `tou_soc_5`, `tou_soc_6` | Same keys | Capacity-mode SOC targets |
+| `tou_voltage_1`, `tou_voltage_2`, `tou_voltage_3`, `tou_voltage_4`, `tou_voltage_5`, `tou_voltage_6` | Same keys | Voltage-mode voltage targets |
+| `tou_1_grid_charge`, `tou_1_generator_charge`, `tou_2_grid_charge`, `tou_2_generator_charge`, `tou_3_grid_charge`, `tou_3_generator_charge`, `tou_4_grid_charge`, `tou_4_generator_charge`, `tou_5_grid_charge`, `tou_5_generator_charge`, `tou_6_grid_charge`, `tou_6_generator_charge` | Same keys | Grid/generator charging flags for each slot |
+
+## Deliberately excluded entities (2)
 
 | SolarBridge profile keys | Count | Reason |
 | --- | ---: | --- |
 | `inverter_id` | 1 | Device identity/diagnostic metadata, not a changing power-flow metric. |
 | `aux_status_raw` | 1 | Uninterpreted diagnostic register; presenting it as a user-facing state would imply semantics the profile has not verified. |
-| `tou_time_1`, `tou_time_2`, `tou_time_3`, `tou_time_4`, `tou_time_5`, `tou_time_6` | 6 | Time-of-use schedule settings, not current system measurements. |
-| `tou_power_1`, `tou_power_2`, `tou_power_3`, `tou_power_4`, `tou_power_5`, `tou_power_6` | 6 | Time-of-use schedule targets, not current power measurements. |
-| `tou_soc_1`, `tou_soc_2`, `tou_soc_3`, `tou_soc_4`, `tou_soc_5`, `tou_soc_6` | 6 | Time-of-use schedule targets, not current battery measurements. |
-| `tou_voltage_1`, `tou_voltage_2`, `tou_voltage_3`, `tou_voltage_4`, `tou_voltage_5`, `tou_voltage_6` | 6 | Voltage-mode time-of-use schedule targets, not current battery measurements. |
-| `tou_1_grid_charge`, `tou_1_generator_charge`, `tou_2_grid_charge`, `tou_2_generator_charge`, `tou_3_grid_charge`, `tou_3_generator_charge`, `tou_4_grid_charge`, `tou_4_generator_charge`, `tou_5_grid_charge`, `tou_5_generator_charge`, `tou_6_grid_charge`, `tou_6_generator_charge` | 12 | Time-of-use enable flags/settings, not current system measurements. |
 
 These entities remain available in Home Assistant for diagnostics and other
-cards. Exclusion here only keeps the power-flow card focused on live and
-accumulated system measurements; it does not hide or change integration
+cards. Exclusion here avoids implying unverified diagnostic semantics;
+it does not hide or change integration
 entities.
