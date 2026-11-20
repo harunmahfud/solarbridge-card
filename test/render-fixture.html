@@ -524,6 +524,77 @@
         redesign[`editor-${key}`] = editedConfig[key] === (key === "show_mode_toggle" ? true : value) && editedConfig.grid_power === config.grid_power;
       }
 
+      // HA feeds every editor change back through setConfig. Preserve both open
+      // and closed sections, focused controls and external YAML updates.
+      const editorGroups = [...editor.querySelectorAll("details")];
+      editorGroups.forEach((group, index) => { group.open = index === 2 || index === 4; });
+      const voltagePicker = editorGroups[2].querySelector('[data-key="battery_voltage"]');
+      voltagePicker.focus();
+      for (const value of ["sensor.new_voltage", "sensor.other_voltage", ""]) {
+        voltagePicker.value = value;
+        voltagePicker.dispatchEvent(new CustomEvent("value-changed", { detail: { value } }));
+        editor.setConfig(editedConfig);
+        editor.hass = { states: { ...states } };
+        await waitForUpdate();
+      }
+      redesign.editorExpansionSurvivesConfigFeedback = [...editor.querySelectorAll("details")].map(group => group.open).join(",") === "false,false,true,false,true,false,false"
+        && document.activeElement === voltagePicker && !editedConfig.battery_voltage;
+      editor.setConfig({ ...config, battery_voltage: "sensor.yaml_voltage", display_mode: "detailed" });
+      redesign.editorExternalConfigUpdatesControls = editor.querySelector('[data-key="battery_voltage"]').value === "sensor.yaml_voltage"
+        && editor.querySelector('[data-key="display_mode"]').value === "detailed";
+      editor.setConfig(config);
+      openPicker.focus();
+
+      // A configured voltage chart is not a SOC chart. Once HA reports Capacity,
+      // Detailed must keep volts; legacy Auto without SOC can still plot volts.
+      const voltageChartConfig = { ...modeConfig, display_mode: "detailed", battery_voltage: "sensor.chart_voltage" };
+      const historyEntities = [];
+      let resolveChartHistory;
+      const chartHistory = new Promise(resolve => { resolveChartHistory = resolve; });
+      const chartHass = mode => ({ ...modeHass({ "sensor.mode": { state: mode }, "sensor.chart_voltage": { state: "50.88" } }), callApi: async (_, path) => {
+        historyEntities.push(new URL(`http://localhost/${path}`).searchParams.get("filter_entity_id"));
+        return chartHistory;
+      } });
+      card.setConfig(voltageChartConfig);
+      card.hass = chartHass("Voltage");
+      await waitForUpdate();
+      card.hass = chartHass("Capacity");
+      await waitForUpdate();
+      resolveChartHistory([[historyPoint(49.1, 23), historyPoint(50.2, 6)]]);
+      await waitForUpdate();
+      card.setConfig({ ...voltageChartConfig, title: "Updated after editing" });
+      card.hass = chartHass("Capacity");
+      await waitForUpdate();
+      redesign.voltageChartSurvivesCapacityUpdate = !root.querySelector(".soc").hidden
+        && root.querySelector(".trend-line").getAttribute("d").includes(" C ")
+        && root.querySelector(".trendbox small").textContent === "Battery voltage · 24h"
+        && [...root.querySelectorAll(".chart-axes text")].some(text => text.textContent.includes(" V"))
+        && historyEntities.join(",") === "sensor.chart_voltage";
+      root.querySelector(".soc").click();
+      redesign.capacityVoltageChartMoreInfo = openedEntities.at(-1) === "sensor.chart_voltage";
+      const legacyVoltageConfig = { ...voltageChartConfig, display_mode: "auto" };
+      delete legacyVoltageConfig.battery_soc;
+      card.setConfig(legacyVoltageConfig);
+      card.hass = chartHass("Capacity");
+      await waitForUpdate();
+      redesign.legacyVoltageHistoryWithoutSoc = !root.querySelector(".soc").hidden
+        && root.querySelector(".soc>div>b").textContent === "50.88 V" && root.querySelector(".gauge").hidden;
+      for (const mode of ["No battery", "unavailable"]) {
+        card.hass = chartHass(mode);
+        await waitForUpdate();
+        redesign[`historyHidden-${mode}`] = root.querySelector(".soc").hidden;
+      }
+      const groupChoices = [...root.querySelectorAll(".metric-group")].map((group, index) => {
+        group.open = index % 2 === 0;
+        return group.open;
+      });
+      for (const display_mode of ["compact", "detailed"]) {
+        card.setConfig({ ...voltageChartConfig, display_mode });
+        card.hass = chartHass("Capacity");
+        await waitForUpdate();
+      }
+      redesign.technicalGroupChoicesSurviveConfigUpdates = [...root.querySelectorAll(".metric-group")].every((group, index) => group.open === groupChoices[index]);
+
       const batteryPreview = params.get("battery");
       const modePreview = ["voltage", "unknown", "none", "missing"].includes(batteryPreview);
       card.setConfig(modePreview ? { ...modeConfig, view_mode: config.view_mode } : config);
@@ -550,6 +621,7 @@
         const scenario = params.get("scenario");
         const scenarioStates = scenario === "export" ? { "sensor.pv": { state: "3200" }, "sensor.grid": { state: "-900" }, "sensor.battery": { state: "-1400" }, "sensor.load": { state: "900" } }
           : scenario === "night" ? { "sensor.pv": { state: "0" }, "sensor.grid": { state: "120" }, "sensor.battery": { state: "380" }, "sensor.load": { state: "500" } }
+          : scenario === "capacity" ? { "sensor.mode": { state: "Capacity" } }
           : scenario === "unavailable" ? { "sensor.grid": { state: "unavailable" } }
           : scenario === "zero" ? Object.fromEntries(["pv", "grid", "battery", "load"].map(key => [`sensor.${key}`, { state: "0" }])) : {};
         card.setConfig({ ...modeConfig, title: "SolarBridge", view_mode: config.view_mode, display_mode: params.get("display"), flow_style: params.get("style") || "hub", show_mode_toggle: params.get("toggle") !== "off", battery_voltage: "sensor.preview_voltage" });

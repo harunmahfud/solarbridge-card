@@ -200,9 +200,17 @@ class SolarBridgeCard extends HTMLElement {
     return this.batteryMode === "Capacity" ? "battery_soc" : null;
   }
 
+  get historyMetricKey() {
+    const metric = this.batteryMetricKey;
+    if (!metric) return null;
+    // Voltage history is useful in Capacity mode too; it is not inferred SOC.
+    if (this.displayMode === "detailed") return this.config.battery_voltage ? "battery_voltage" : null;
+    return this.config[metric] ? metric : this.config.battery_voltage ? "battery_voltage" : null;
+  }
+
   async loadHistory() {
     if (!this._hass || !this.config) return;
-    const entityId = this.config[this.batteryMetricKey];
+    const entityId = this.config[this.historyMetricKey];
     if (entityId !== this._historyEntity) {
       this._historyEntity = entityId;
       this._batteryHistory = [];
@@ -217,7 +225,7 @@ class SolarBridgeCard extends HTMLElement {
       const start = new Date(now - 24 * 60 * 60 * 1000).toISOString();
       const end = new Date(now).toISOString();
       const history = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${encodeURIComponent(entityId)}&end_time=${encodeURIComponent(end)}&minimal_response`);
-      if (this._historyKey !== key || this.config[this.batteryMetricKey] !== entityId) return;
+      if (this._historyKey !== key || this.config[this.historyMetricKey] !== entityId) return;
       this._batteryHistory = (history?.[0] || []).map(item => ({
         value: item.state == null || String(item.state).trim() === "" || !Number.isFinite(Number(item.state)) ? null : Number(item.state),
         time: new Date(item.last_changed || item.last_updated).getTime(),
@@ -300,6 +308,9 @@ class SolarBridgeCard extends HTMLElement {
     const mode = this.batteryMode;
     const metricKey = this.batteryMetricKey;
     const soc = metricKey ? this.value(metricKey) : null;
+    const historyMetric = this.historyMetricKey;
+    const historyVoltage = historyMetric === "battery_voltage";
+    const historyValue = historyMetric ? this.value(historyMetric) : null;
     const batteryValue = mode === "Voltage" ? `${soc == null ? "—" : soc.toFixed(2)} V` : `${soc ?? "—"}%`;
     const load = this.value("load_power");
     const grid = this.value("grid_power");
@@ -324,7 +335,7 @@ class SolarBridgeCard extends HTMLElement {
     this._elements.batteryMode.hidden = mode === "Capacity";
     text(this._elements.batteryPower, magnitude(battery));
     text(this._elements.load, magnitude(load));
-    for (const [key, value] of Object.entries({ pv, inverter, grid, batteryPower: battery, batterySoc: soc, soc, load })) {
+    for (const [key, value] of Object.entries({ pv, inverter, grid, batteryPower: battery, batterySoc: soc, soc: historyValue, load })) {
       this.updateValueTone(this._elements.values[key], value);
     }
     this._elements.batterySocGroup.hidden = !this.config[metricKey];
@@ -356,19 +367,19 @@ class SolarBridgeCard extends HTMLElement {
     this._elements.distribution.querySelector(".track-bar").setAttribute("aria-label", this._elements.distribution.querySelector(".legend").textContent);
     this._elements.batteryIndicator.hidden = !["minimal", "horizontal"].includes(style) || mode === "No battery" || !(this.config.battery_power || this.config[metricKey]);
     text(this._elements.batteryIndicator, `Battery ${this.flowState(battery, "discharging", "charging", "idle").toLowerCase()}${battery != null && Math.abs(battery) >= 1 ? ` at ${magnitude(battery)}` : ""}${this.config[metricKey] ? ` · ${batteryValue}` : ""}${mode !== "Capacity" ? ` · ${this._elements.batteryMode.textContent}` : ""}`);
-    text(this._elements.soc, batteryValue);
-    this._elements.gauge.hidden = mode !== "Capacity";
-    text(this._elements.trendLabel, mode === "Voltage" ? "Battery voltage · 24h" : "Battery SOC · 24h");
-    this._elements.trend.setAttribute("aria-label", mode === "Voltage" ? "24 hour battery voltage trend" : "24 hour battery SOC trend");
+    text(this._elements.soc, historyVoltage ? `${historyValue == null ? "—" : historyValue.toFixed(2)} V` : batteryValue);
+    this._elements.gauge.hidden = !historyMetric || historyVoltage;
+    text(this._elements.trendLabel, historyVoltage ? "Battery voltage · 24h" : "Battery SOC · 24h");
+    this._elements.trend.setAttribute("aria-label", historyVoltage ? "24 hour battery voltage trend" : "24 hour battery SOC trend");
     this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
     this.loadHistory();
-    this.updateHistoryChart(soc);
+    this.updateHistoryChart(historyValue);
     for (const [key] of CORE_ENTITY_FIELDS.slice(6)) text(this._elements.energy[key], this.energy(key));
     this._elements.batteryNode.dataset.fallbackKey = metricKey || "";
-    this._elements.batteryMetric.dataset.key = metricKey || "";
+    this._elements.batteryMetric.dataset.key = historyMetric || "";
     for (const item of this._elements.entityItems) this.updateEntityItem(item, item.dataset.key, item.dataset.fallbackKey);
     if (mode === "No battery") this._elements.batteryNode.hidden = true;
-    this._elements.batteryMetric.hidden ||= this.displayMode === "compact" || (this.displayMode === "detailed" && mode !== "Voltage");
+    this._elements.batteryMetric.hidden ||= this.displayMode === "compact";
     // The hub is a topology anchor, not an inferred inverter measurement.
     if (style === "hub" && this.displayMode !== "auto") this.shadowRoot.querySelector(".inverter").hidden = false;
     const inverterReading = this.shadowRoot.querySelector(".inverter-reading");
@@ -406,7 +417,7 @@ class SolarBridgeCard extends HTMLElement {
     this.shadowRoot.querySelector(".chart-empty").toggleAttribute("hidden", samples.some(sample => sample.value != null && Number.isFinite(sample.value) && sample.time < now));
     const values = samples.filter(sample => sample.value != null && Number.isFinite(sample.value)).map(sample => sample.value);
     const min = Math.min(...values), max = Math.max(...values);
-    const unit = this.batteryMode === "Voltage" ? "V" : "%";
+    const unit = this.historyMetricKey === "battery_voltage" ? "V" : "%";
     const axes = this.shadowRoot.querySelector(".chart-axes");
     const time = timestamp => new Date(timestamp).toLocaleTimeString(this._hass.locale?.language, { hour: "2-digit", minute: "2-digit" });
     const date = timestamp => new Date(timestamp).toLocaleDateString(this._hass.locale?.language, { month: "short", day: "numeric" });
@@ -554,6 +565,21 @@ class SolarBridgeCardEditor extends HTMLElement {
   }
   render() {
     if (!this._hass) return;
+    if (this.querySelector(".editor")) {
+      // HA echoes config-changed through setConfig. Keep the controls and native
+      // details nodes alive so an entity selection cannot reset focus or folds.
+      const values = { ...this.config,
+        title: this.config?.title || "Solar power flow",
+        view_mode: this.config?.view_mode === "system" ? "system" : "overview",
+        display_mode: this.config?.display_mode ?? "auto",
+        flow_style: this.config?.flow_style ?? "hub",
+        show_mode_toggle: this.config?.show_mode_toggle ?? false };
+      this.querySelectorAll("ha-textfield,ha-entity-picker,select").forEach(field => {
+        const value = String(values[field.dataset.key] ?? "");
+        if (field.value !== value) field.value = value;
+      });
+      return;
+    }
     const picker = ([key,label], optional = false) => `<ha-entity-picker label="${label}${optional ? " (optional)" : ""}" data-key="${key}" value="${escapeHtml(this.config?.[key] || "")}" include-domains='["sensor"]' allow-custom-entity></ha-entity-picker>`;
     const mode = this.config?.view_mode === "system" ? "system" : "overview";
     this.innerHTML = `<style>.editor{display:grid;gap:12px;padding:8px}label{display:grid;gap:5px;font-weight:600}select{box-sizing:border-box;width:100%;padding:10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)}ha-textfield,ha-entity-picker{width:100%}details{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:8px}summary{cursor:pointer;font-weight:600}.fields{display:grid;gap:10px;margin-top:10px}</style><div class="editor"><label>Presentation mode<select data-key="view_mode"><option value="overview"${mode === "overview" ? " selected" : ""}>Overview</option><option value="system"${mode === "system" ? " selected" : ""}>System detail</option></select></label><ha-textfield label="Title" value="${escapeHtml(this.config?.title || "Solar power flow")}" data-key="title"></ha-textfield>${CORE_ENTITY_FIELDS.map(field => picker(field, field[0].startsWith("daily_"))).join("")}${DETAIL_GROUPS.map(([group,fields]) => `<details><summary>${group} details</summary><div class="fields">${fields.map(field => picker(field, true)).join("")}</div></details>`).join("")}</div>`;
