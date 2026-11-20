@@ -20,13 +20,6 @@
       }
       customElements.define("ha-entity-picker", FakeEntityPicker);
       await import("../solarbridge-card.js");
-      const playbackRateRequests = new WeakMap();
-      const updatePlaybackRate = Animation.prototype.updatePlaybackRate;
-      Animation.prototype.updatePlaybackRate = function(rate) {
-        playbackRateRequests.set(this, rate);
-        return updatePlaybackRate.call(this, rate);
-      };
-
       const params = new URLSearchParams(location.search);
       const dark = params.get("theme") === "dark";
       const systemView = params.get("view") === "system";
@@ -251,7 +244,7 @@
         await waitForUpdate();
         lifecycle.speedPhaseContinuous = pvAnimation === pulses[0].getAnimations()[0]
           && Math.abs(pvAnimation.currentTime - beforeSpeed) < 100;
-        lifecycle.speedChanged = Math.abs(playbackRateRequests.get(pvAnimation) - (1 / 1.5)) < .001;
+        lifecycle.speedChanged = Math.abs(pvAnimation.playbackRate - (1 / 1.5)) < .001;
 
         const beforeReverse = pvAnimation.currentTime;
         card.hass = makeHass({ "sensor.pv": { state: "-1200" } });
@@ -259,7 +252,7 @@
         const reversePhaseDelta = Math.abs((pvAnimation.currentTime % 1000) - (beforeReverse % 1000));
         lifecycle.reversePhaseContinuous = pvAnimation === pulses[0].getAnimations()[0]
           && Math.min(reversePhaseDelta, 1000 - reversePhaseDelta) < 100;
-        lifecycle.directionChanged = playbackRateRequests.get(pvAnimation) < 0;
+        lifecycle.directionChanged = pvAnimation.playbackRate < 0;
 
         card.hass = makeHass({ "sensor.pv": { state: "0.5" } });
         await waitForUpdate();
@@ -297,11 +290,114 @@
         card._intersecting = true;
         card.syncAnimationPlayback();
         lifecycle.offscreenPauseResume = paused && animations.every(animation => animation.playState === "running");
+        lifecycle.expectedDirections = animations.map(animation => Math.sign(animation.playbackRate)).join(",") === "1,-1,1,1";
+
+        // Hiding a dashboard destroys CSS animations, but not the connector DOM.
+        card.hass = makeHass({ "sensor.battery": { state: "-209" } });
+        await waitForUpdate();
+        const batteryPulse = pulses[2];
+        const oldBatteryAnimation = batteryPulse.getAnimations()[0];
+        card.style.display = "none";
+        void card.offsetWidth;
+        card.style.display = "";
+        void card.offsetWidth;
+        card.hass = makeHass({ "sensor.battery": { state: "-209" }, "sensor.load_day": { state: "3.1" } });
+        await waitForUpdate();
+        const recreated = batteryPulse.getAnimations()[0];
+        lifecycle.recreatedChargingDirection = recreated !== oldBatteryAnimation && recreated.playbackRate < 0;
+        card.hass = makeHass({ "sensor.battery": { state: "209" } });
+        await waitForUpdate();
+        lifecycle.recreatedDischargingDirection = recreated.playbackRate > 0;
+      }
+      const modeConfig = {
+        ...config, view_mode: "system", battery_mode: "sensor.mode", battery_voltage: "sensor.voltage",
+        battery_shutdown_voltage: "sensor.shutdown_v", battery_restart_voltage: "sensor.restart_v",
+        battery_low_voltage: "sensor.low_v", battery_shutdown_soc: "sensor.shutdown_soc",
+        battery_restart_soc: "sensor.restart_soc", battery_low_soc: "sensor.low_soc", bms_soc: "sensor.bms",
+      };
+      const modeStates = {
+        "sensor.mode": { state: "Voltage" }, "sensor.voltage": { state: "51.27", attributes: { unit_of_measurement: "V" } },
+        "sensor.shutdown_v": { state: "44", attributes: { unit_of_measurement: "V" } },
+        "sensor.restart_v": { state: "50.5", attributes: { unit_of_measurement: "V" } },
+        "sensor.low_v": { state: "47", attributes: { unit_of_measurement: "V" } },
+        "sensor.shutdown_soc": { state: "10", attributes: { unit_of_measurement: "%" } },
+        "sensor.restart_soc": { state: "25", attributes: { unit_of_measurement: "%" } },
+        "sensor.low_soc": { state: "20", attributes: { unit_of_measurement: "%" } }, "sensor.bms": { state: "99" },
+      };
+      const modeHass = overrides => makeHass({ ...modeStates, ...overrides });
+      const row = key => root.querySelector(`.metric-row[data-key="${key}"]`);
+      card.setConfig(modeConfig);
+      card.hass = modeHass();
+      await waitForUpdate();
+      semantics.voltageMode = root.querySelector(".battery-soc-value").textContent === "51.27 V"
+        && root.querySelector(".soc>div>b").textContent === "51.27 V" && root.querySelector(".gauge").hidden
+        && root.querySelector(".trendbox small").textContent === "Battery voltage · 24h"
+        && !row("battery_shutdown_voltage").hidden && row("battery_shutdown_voltage").querySelector("dd").textContent === "44 V"
+        && row("battery_shutdown_soc").hidden && row("bms_soc").hidden
+        && battery.scrollWidth <= battery.clientWidth;
+      root.querySelector(".soc").click();
+      semantics.voltageMoreInfo = openedEntities.at(-1) === "sensor.voltage";
+      card.hass = modeHass({ "sensor.mode": { state: "Capacity" } });
+      await waitForUpdate();
+      semantics.liveCapacitySwitch = root.querySelector(".battery-soc-value").textContent === "87%"
+        && !root.querySelector(".gauge").hidden && !row("battery_shutdown_soc").hidden
+        && row("battery_shutdown_voltage").hidden && !row("bms_soc").hidden;
+      card.hass = modeHass({ "sensor.mode": { state: "No battery" } });
+      await waitForUpdate();
+      semantics.noBatteryMode = battery.hidden && lines[2].hidden && root.querySelector(".soc").hidden
+        && getComputedStyle(pulses[2]).visibility === "hidden";
+      card.hass = modeHass({ "sensor.mode": { state: "unavailable" } });
+      await waitForUpdate();
+      semantics.unknownMode = root.querySelector(".soc").hidden && root.querySelector(".battery-soc").hidden
+        && root.querySelector(".battery-mode").textContent === "Mode unavailable";
+
+      const attributeConfig = { ...modeConfig };
+      delete attributeConfig.battery_mode;
+      card.setConfig(attributeConfig);
+      card.hass = modeHass();
+      await waitForUpdate();
+      card.hass = modeHass({ "sensor.voltage": { state: "51.27", attributes: { unit_of_measurement: "V", battery_mode: "Voltage" } } });
+      await waitForUpdate();
+      semantics.attributeModeUpdate = root.querySelector(".battery-soc-value").textContent === "51.27 V";
+      card.hass = modeHass({ "sensor.voltage": { state: "unavailable", attributes: { battery_mode: "Voltage" } } });
+      await waitForUpdate();
+      semantics.unavailableVoltage = root.querySelector(".battery-soc-value").textContent === "— V"
+        && root.querySelector(".battery-soc-value").dataset.valueTone === "unavailable";
+
+      // A delayed SOC response must not overwrite the graph after switching to volts.
+      const pendingHistory = new Map();
+      const historyHass = overrides => ({ ...modeHass(overrides), callApi: (_, path) => new Promise(resolve => {
+        pendingHistory.set(new URL(`http://localhost/${path}`).searchParams.get("filter_entity_id"), resolve);
+      }) });
+      card.setConfig({ ...modeConfig, battery_soc: "sensor.other_soc" });
+      card.hass = historyHass({ "sensor.mode": { state: "Capacity" } });
+      await waitForUpdate();
+      card.hass = historyHass();
+      await waitForUpdate();
+      const historyPoint = (value, hours = 1) => ({ state: String(value), last_changed: new Date(Date.now() - hours * 3600000).toISOString() });
+      pendingHistory.get("sensor.other_soc")([ [historyPoint(5), historyPoint(95)] ]);
+      await waitForUpdate();
+      semantics.staleSocHistoryIgnored = !root.querySelector(".trend-line").getAttribute("d").includes(" C ");
+      pendingHistory.get("sensor.voltage")([ [historyPoint(49.2, 20), historyPoint(50.1, 8)] ]);
+      await waitForUpdate();
+      semantics.voltageHistoryLoaded = root.querySelector(".trend-line").getAttribute("d").includes(" C ");
+
+      const batteryPreview = params.get("battery");
+      const modePreview = ["voltage", "unknown", "none", "missing"].includes(batteryPreview);
+      card.setConfig(modePreview ? { ...modeConfig, view_mode: config.view_mode } : config);
+      const previewStates = batteryPreview === "unknown" ? { "sensor.mode": { state: "unavailable" } }
+        : batteryPreview === "none" ? { "sensor.mode": { state: "No battery" } }
+        : batteryPreview === "missing" ? { "sensor.voltage": { state: "unavailable" } } : {};
+      card.hass = modePreview ? modeHass(previewStates) : makeHass();
+      await waitForUpdate();
+      if (params.get("battery") === "voltage") {
+        const valueBounds = root.querySelector(".battery-soc-value").getBoundingClientRect();
+        const batteryBounds = battery.getBoundingClientRect();
+        semantics.voltageValueContained = valueBounds.left >= batteryBounds.left && valueBounds.right <= batteryBounds.right;
       }
       const tests = {
         labelContrast: labelContrast >= 4.5,
         valueContrast: valueContrast >= 4.5,
-        expectedDirections: reducedMotion || animations.map(animation => Math.sign(playbackRateRequests.get(animation))).join(",") === "1,-1,1,1",
         seamlessLoopOffset: animationOffsets.join(",") === "68" && animationOffsets.every(offset => Math.abs(offset) % 34 === 0),
         seamlessPattern: pulseBackgrounds.every(value => value.includes("repeating-linear-gradient")),
         fullConnectorPulse: pulseWidths.every(([line, pulse]) => Math.abs(pulse - line - 68) <= 1),
@@ -310,7 +406,7 @@
         batteryValueContained: battery.scrollWidth <= battery.clientWidth,
         dailyValuesRaw: summaries.map(item => item.querySelector("b").textContent).join(",") === "0.9 kWh,2.3 kWh,2.6 kWh,0.0 kWh" && statisticsCalls === 0,
         editorDropdownPreserved: editor.querySelector("ha-entity-picker") === openPicker && openPicker.menuOpen && document.activeElement === openPicker,
-        editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 49 && editor.querySelector("select").value === (systemView ? "system" : "overview"),
+        editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 57 && editor.querySelector("select").value === (systemView ? "system" : "overview"),
         viewMode: viewModeCorrect,
         ...semantics,
         ...lifecycle,

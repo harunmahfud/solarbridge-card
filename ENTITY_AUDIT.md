@@ -2,16 +2,16 @@
 
 This inventory was traced against the `deye_sg05lp1_eu_sm2_p` profile in
 `harunmahfud/ha-solarbridge`, the integration's generic profile-driven sensor
-creation, and its English entity translations at `ha-solarbridge` v0.1.9. The
-audited profile exposes 80 entities: 48 live or accumulated system metrics
-supported by this card and 32 identity, raw, or time-of-use diagnostics
+creation, and its English entity translations, including the battery-mode
+additions. The audited profile exposes 94 entities: 56 system metrics/settings
+supported by this card and 38 identity, raw, or time-of-use diagnostics
 deliberately not offered as card fields.
 
 The card does not depend on generated Home Assistant entity IDs. Users select
 entities explicitly, so the table maps integration profile keys to card
 configuration fields.
 
-## Supported system metrics (48)
+## Supported system metrics and battery settings (56)
 
 All values below are raw Home Assistant entity states. The card does not sum
 PV strings, derive a power balance, adjust signs, or convert units. The
@@ -26,6 +26,14 @@ respectively. The README contains the complete node label/direction table.
 
 | SolarBridge profile key | Card field | Presentation |
 | --- | --- | --- |
+| `battery_mode` | `battery_mode` | Selects Voltage / Capacity / No battery presentation; System detail · Battery |
+| `battery_type` | `battery_type` | System detail · Battery; chemistry does not select the control basis |
+| `battery_shutdown_voltage` | `battery_shutdown_voltage` | System detail · Battery, Voltage mode only |
+| `battery_restart_voltage` | `battery_restart_voltage` | System detail · Battery, Voltage mode only |
+| `battery_low_voltage` | `battery_low_voltage` | System detail · Battery, Voltage mode only |
+| `battery_shutdown_soc` | `battery_shutdown_soc` | System detail · Battery, Capacity mode only |
+| `battery_restart_soc` | `battery_restart_soc` | System detail · Battery, Capacity mode only |
+| `battery_low_soc` | `battery_low_soc` | System detail · Battery, Capacity mode only |
 | `running_status` | `running_status` | System detail · Inverter |
 | `daily_battery_charge` | `daily_battery_charge` | System detail · Battery |
 | `daily_battery_discharge` | `daily_battery_discharge` | System detail · Battery |
@@ -54,8 +62,8 @@ respectively. The README contains the complete node label/direction table.
 | `inverter_power` | `inverter_power` | Overview flow topology |
 | `load_power` | `load_power` | Overview flow topology |
 | `battery_temperature` | `battery_temperature` | System detail · Battery |
-| `battery_voltage` | `battery_voltage` | System detail · Battery |
-| `battery_soc` | `battery_soc` | Overview node, gauge, and history |
+| `battery_voltage` | `battery_voltage` | System detail · Battery; node and history in Voltage mode |
+| `battery_soc` | `battery_soc` | Node, gauge, and history in Capacity mode |
 | `pv1_power` | `pv_power` and/or `pv1_power` | Overview flow topology and/or System detail · Solar strings |
 | `pv2_power` | `pv2_power` | System detail · Solar strings |
 | `battery_power` | `battery_power` | Overview flow topology |
@@ -80,13 +88,19 @@ from `battery_voltage`, which is measured at the inverter battery terminals.
 The card therefore exposes both as separate fields and does not substitute one
 for the other.
 
+In Voltage mode the BMS group is hidden and voltage replaces SOC in the node
+and history, without a percentage gauge. The inverter's `battery_mode`
+attribute on either level entity also enables automatic detection without a
+separately selected mode entity. Legacy configurations without mode metadata
+retain Capacity presentation.
+
 `pv_power` is an explicitly selected topology input, not an integration
 profile key. The current SolarBridge profile has separate `pv1_power` and
 `pv2_power` entities but no verified aggregate PV power register. Selecting
 `pv1_power` for `pv_power`, as in the example, displays only that raw string
 value; the card never silently adds PV1 and PV2.
 
-## Deliberately excluded entities (32)
+## Deliberately excluded entities (38)
 
 | SolarBridge profile keys | Count | Reason |
 | --- | ---: | --- |
@@ -95,6 +109,7 @@ value; the card never silently adds PV1 and PV2.
 | `tou_time_1`, `tou_time_2`, `tou_time_3`, `tou_time_4`, `tou_time_5`, `tou_time_6` | 6 | Time-of-use schedule settings, not current system measurements. |
 | `tou_power_1`, `tou_power_2`, `tou_power_3`, `tou_power_4`, `tou_power_5`, `tou_power_6` | 6 | Time-of-use schedule targets, not current power measurements. |
 | `tou_soc_1`, `tou_soc_2`, `tou_soc_3`, `tou_soc_4`, `tou_soc_5`, `tou_soc_6` | 6 | Time-of-use schedule targets, not current battery measurements. |
+| `tou_voltage_1`, `tou_voltage_2`, `tou_voltage_3`, `tou_voltage_4`, `tou_voltage_5`, `tou_voltage_6` | 6 | Voltage-mode time-of-use schedule targets, not current battery measurements. |
 | `tou_1_grid_charge`, `tou_1_generator_charge`, `tou_2_grid_charge`, `tou_2_generator_charge`, `tou_3_grid_charge`, `tou_3_generator_charge`, `tou_4_grid_charge`, `tou_4_generator_charge`, `tou_5_grid_charge`, `tou_5_generator_charge`, `tou_6_grid_charge`, `tou_6_generator_charge` | 12 | Time-of-use enable flags/settings, not current system measurements. |
 
 These entities remain available in Home Assistant for diagnostics and other

@@ -1,6 +1,6 @@
 # SolarBridge Card
 
-A configurable Home Assistant power-flow card showing PV → inverter → battery / home / grid with animated direction and speed, a 24-hour battery SOC trend, and daily energy summaries from configured entity states.
+A configurable Home Assistant power-flow card showing PV → inverter → battery / home / grid with animated direction and speed, a 24-hour battery SOC or voltage trend, and daily energy summaries from configured entity states.
 
 The card has no hardcoded SolarBridge entity IDs. It works with any integration exposing standard power, battery SOC, and energy sensors.
 
@@ -77,12 +77,50 @@ The BMS fields require `ha-solarbridge` v0.1.9 or an equivalent sensor from
 another integration. `bms_voltage` is the voltage reported by the BMS and is
 distinct from the inverter battery-terminal reading exposed as
 `battery_voltage`. All System detail fields are optional. See the
-[complete 80-entity audit](ENTITY_AUDIT.md) for every supported mapping and the
+[complete 94-entity audit](ENTITY_AUDIT.md) for every supported mapping and the
 rationale for excluding identity, raw, and time-of-use setting entities.
 
 The labels and animation directions follow the first-party SolarBridge sign
 contract documented below. If another integration uses different signs, use a
 Home Assistant template sensor to invert the affected entity.
+
+### Voltage-controlled batteries
+
+Select **Battery voltage** in the editor's Battery details. With SolarBridge's
+battery-mode support, the card reads the `battery_mode` attribute from that
+entity (or from Battery SOC), so it follows the inverter setting automatically.
+Alternatively select **Battery operation mode**, whose state must be `Voltage`,
+`Capacity`, or `No battery`. An explicitly selected mode entity takes precedence
+over measurement attributes. Without either source, legacy SOC behavior is
+preserved; battery chemistry and BMS SOC are never used to guess the mode.
+
+- **Voltage:** shows battery-terminal volts to two decimals, a Voltage mode
+  label, and voltage history. The percentage gauge and BMS detail group are
+  hidden. No voltage-to-SOC percentage is invented.
+- **Capacity:** retains SOC text, percentage gauge, and SOC history.
+- **No battery:** hides the battery node, connector, and level/history section.
+- **Unknown/unavailable mode:** keeps configured battery power visible, labels
+  the mode unavailable, and hides the level/history rather than showing stale SOC.
+
+System detail can show **Battery type** and shutdown/restart/low thresholds.
+Configure either or both threshold sets; only the active mode's set is shown.
+Changing modes selects the matching history entity and discards late responses
+for the previous source. Clicking the level/history opens the active voltage or
+SOC entity, not a fixed SOC dialog.
+
+Example additions to an existing card (use your actual entity IDs):
+
+```yaml
+battery_voltage: sensor.solarbridge_battery_voltage
+battery_mode: sensor.solarbridge_battery_operation_mode
+battery_type: sensor.solarbridge_battery_type
+battery_shutdown_voltage: sensor.solarbridge_battery_shutdown_voltage
+battery_restart_voltage: sensor.solarbridge_battery_restart_voltage
+battery_low_voltage: sensor.solarbridge_battery_low_voltage
+battery_shutdown_soc: sensor.solarbridge_battery_shutdown_soc
+battery_restart_soc: sensor.solarbridge_battery_restart_soc
+battery_low_soc: sensor.solarbridge_battery_low_soc
+```
 
 ## Data and calculations
 
@@ -103,7 +141,9 @@ verified aggregate PV power register.
 | Home power | `load_power` | Raw numeric entity state, assumed W; presentation formatting only. |
 | Grid power | `grid_power` | Raw signed numeric entity state, assumed W; presentation formatting only. |
 | Battery SOC text | `battery_soc` | Raw numeric entity state with `%` appended. The gauge width clamps this value to 0–100%; the displayed number itself is not clamped. |
+| Battery voltage text | `battery_voltage`, when mode is `Voltage` | Raw numeric volts formatted to two decimals with `V` appended, replacing the SOC text. No percentage gauge or derived SOC. |
 | Battery SOC · 24h | Recorder history for `battery_soc` | Numeric states returned for the preceding 24 hours plus the current state as a live endpoint. Samples use their actual timestamps on the horizontal axis and are min/max-normalized vertically, then rendered as a smooth 2 px curve with a translucent area fill. History refreshes hourly. This affects only the graph, not the SOC value. |
+| Battery voltage · 24h | Recorder history for `battery_voltage`, when mode is `Voltage` | Same time-based plotting as SOC, using voltage samples only; the vertical normalization is not a battery capacity estimate. |
 | Solar today | `daily_solar` | Raw current numeric entity state, assumed kWh, rounded to one decimal. It is not calculated from `pv_power` and does not use Recorder statistic `change` or `sum`. |
 | Load today | `daily_load` | Raw current numeric entity state, assumed kWh, rounded to one decimal. |
 | Imported today | `daily_grid_import` | Raw current numeric entity state, assumed kWh, rounded to one decimal. |
@@ -137,6 +177,7 @@ Flow animation is derived from each raw power value:
 - The 68 px keyframe traversal takes `1800 / abs(power)` seconds, clamped to 0.45–3 seconds, so greater magnitude moves faster.
 - Positive PV, battery, and load values use the forward direction; negative values reverse it. Grid direction is intentionally inverted: positive uses the reverse direction and negative uses forward.
 - These signs control animation only. Displayed signed values are not adjusted.
+- Rates are applied to the actual current browser animation, including animations recreated after dashboard hiding/reconnection; no cached connector rate can leave charging moving in the discharging direction.
 - Reduced-motion preferences disable the moving pattern while preserving the line's active/inactive indication.
 
 System detail displays the status labels from the sign table above. Overview

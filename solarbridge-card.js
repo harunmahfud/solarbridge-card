@@ -52,10 +52,14 @@ const DETAIL_GROUPS = [
     ["running_status", "Running status"], ["ac_temperature", "AC temperature"], ["dc_temperature", "DC temperature"],
   ]],
   ["Battery", [
+    ["battery_mode", "Battery operation mode"], ["battery_type", "Battery type"],
     ["battery_voltage", "Battery voltage"], ["battery_current", "Battery current"],
     ["battery_temperature", "Battery temperature"], ["daily_battery_charge", "Daily battery charge"],
     ["daily_battery_discharge", "Daily battery discharge"], ["total_battery_charge", "Total battery charge"],
     ["total_battery_discharge", "Total battery discharge"],
+    ["battery_shutdown_voltage", "Shutdown voltage"], ["battery_restart_voltage", "Restart voltage"],
+    ["battery_low_voltage", "Low battery voltage"], ["battery_shutdown_soc", "Shutdown SOC"],
+    ["battery_restart_soc", "Restart SOC"], ["battery_low_soc", "Low battery SOC"],
   ]],
   ["Battery management system", [
     ["bms_charging_voltage", "BMS charging voltage"], ["bms_discharge_voltage", "BMS discharge voltage"],
@@ -81,9 +85,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"]/g, character =
 
 class SolarBridgeCard extends HTMLElement {
   setConfig(config) {
-    const batteryEntityChanged = this.config?.battery_soc !== config.battery_soc;
     this.config = { title: "Solar power flow", ...config, view_mode: config.view_mode === "system" ? "system" : "overview" };
-    if (batteryEntityChanged) this._historyKey = "";
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     this._stateSignature = "";
     this.scheduleRender();
@@ -94,7 +96,7 @@ class SolarBridgeCard extends HTMLElement {
     const signature = ENTITY_FIELDS.map(([key]) => {
       const entityId = this.config?.[key];
       const entity = hass?.states?.[entityId];
-      return `${entityId || ""}:${entity?.state || ""}:${entity?.attributes?.unit_of_measurement || ""}`;
+      return `${entityId || ""}:${entity?.state || ""}:${entity?.attributes?.unit_of_measurement || ""}:${entity?.attributes?.battery_mode || ""}`;
     }).join("|");
     if (signature !== this._stateSignature) {
       this._stateSignature = signature;
@@ -105,15 +107,20 @@ class SolarBridgeCard extends HTMLElement {
 
   connectedCallback() {
     this._intersecting = true;
-    this._visibilityHandler = () => this.syncAnimationPlayback();
+    this._visibilityHandler = () => {
+      this.scheduleRender();
+      this.syncAnimationPlayback();
+    };
     document.addEventListener("visibilitychange", this._visibilityHandler);
     if ("IntersectionObserver" in window) {
       this._observer = new IntersectionObserver(([entry]) => {
         this._intersecting = entry.isIntersecting;
+        if (entry.isIntersecting) this.scheduleRender();
         this.syncAnimationPlayback();
       });
       this._observer.observe(this);
     }
+    this.scheduleRender();
   }
 
   disconnectedCallback() {
@@ -143,17 +150,37 @@ class SolarBridgeCard extends HTMLElement {
   static getConfigElement() { return document.createElement("solarbridge-card-editor"); }
   static getStubConfig() { return {}; }
 
+  get batteryMode() {
+    if (this.config.battery_mode) return this._hass?.states?.[this.config.battery_mode]?.state;
+    return this._hass?.states?.[this.config.battery_voltage]?.attributes?.battery_mode
+      ?? this._hass?.states?.[this.config.battery_soc]?.attributes?.battery_mode
+      ?? "Capacity";
+  }
+
+  get batteryMetricKey() {
+    if (this.batteryMode === "Voltage") return "battery_voltage";
+    return this.batteryMode === "Capacity" ? "battery_soc" : null;
+  }
+
   async loadHistory() {
-    if (!this._hass || !this.config?.battery_soc) return;
+    if (!this._hass || !this.config) return;
+    const entityId = this.config[this.batteryMetricKey];
+    if (entityId !== this._historyEntity) {
+      this._historyEntity = entityId;
+      this._batteryHistory = [];
+      this._historyKey = "";
+    }
+    if (!entityId) return;
     const now = Date.now();
-    const key = `${this.config.battery_soc}:${Math.floor(now / (60 * 60 * 1000))}`;
+    const key = `${entityId}:${Math.floor(now / (60 * 60 * 1000))}`;
     if (key === this._historyKey) return;
     this._historyKey = key;
     try {
       const start = new Date(now - 24 * 60 * 60 * 1000).toISOString();
       const end = new Date(now).toISOString();
-      const history = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${encodeURIComponent(this.config.battery_soc)}&end_time=${encodeURIComponent(end)}&minimal_response`);
-      this._socHistory = (history?.[0] || []).map(item => ({
+      const history = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${encodeURIComponent(entityId)}&end_time=${encodeURIComponent(end)}&minimal_response`);
+      if (this._historyKey !== key || this.config[this.batteryMetricKey] !== entityId) return;
+      this._batteryHistory = (history?.[0] || []).map(item => ({
         value: Number(item.state),
         time: new Date(item.last_changed || item.last_updated).getTime(),
       })).filter(item => Number.isFinite(item.value) && Number.isFinite(item.time));
@@ -196,8 +223,10 @@ class SolarBridgeCard extends HTMLElement {
       .node b,.node strong{display:block;white-space:nowrap}.node b{font-size:12px;color:var(--sb-muted);margin:3px}.node strong{font-size:16px}.icon{font-size:25px}.pv{grid-column:1}.inverter{grid-column:3}.grid{grid-column:5}.battery{grid-column:1;grid-row:3}.load{grid-column:5;grid-row:3}
       [data-value-tone="positive"]{color:var(--success-color,#2e7d32)}[data-value-tone="negative"]{color:var(--warning-color,#e65100)}[data-value-tone="unavailable"]{color:var(--sb-muted)}
       .battery strong{display:flex;flex-wrap:wrap;justify-content:center;column-gap:.25em;white-space:normal}.battery strong>span{white-space:nowrap}
-      .flow-state{display:none;margin-top:4px;color:var(--sb-muted);font-size:10px}.system-mode .flow-state{display:block}
+      .voltage-mode .battery strong{flex-direction:column;font-size:14px}.voltage-mode .battery-soc>[aria-hidden]{display:none}
+      .flow-state{display:none;margin-top:4px;color:var(--sb-muted);font-size:10px}.system-mode .flow-state{display:block}.battery-mode{display:block;color:var(--sb-muted);font-size:10px;margin-bottom:4px}
       .line{height:4px;position:relative;background:color-mix(in srgb,var(--sb-text) 22%,var(--sb-surface));border-radius:5px;overflow:hidden}.line[hidden]{display:block!important;visibility:hidden}.line i{visibility:hidden;position:absolute;top:0;bottom:0;left:-68px;width:calc(100% + 68px);border-radius:inherit;background:repeating-linear-gradient(90deg,var(--sb-accent) 0 14px,transparent 14px 34px);animation:flow 1s linear infinite;will-change:transform}.line.active i{visibility:visible}.pv-line{grid-column:2;grid-row:1}.grid-line{grid-column:4;grid-row:1}.battery-line{grid-column:2;grid-row:2;transform:rotate(-35deg)}.load-line{grid-column:4;grid-row:2;transform:rotate(35deg)}
+      .line[hidden] i{visibility:hidden}
       @keyframes flow{to{transform:translateX(68px)}}
       .soc{margin-top:17px;display:grid;grid-template-columns:80px 1fr;gap:12px;align-items:end}.gauge{height:10px;background:color-mix(in srgb,var(--sb-text) 18%,var(--sb-surface));border-radius:8px;overflow:hidden}.gauge i{display:block;height:100%;width:var(--soc);background:linear-gradient(90deg,#ff7043,#66bb6a);border-radius:8px}.trendbox small{display:block;font-size:10px;color:var(--sb-muted);margin-bottom:2px}.trend{display:block;width:100%;height:42px;border-bottom:1px solid color-mix(in srgb,var(--sb-text) 14%,transparent);overflow:visible}.trend-line{fill:none;stroke:var(--sb-accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}.trend-area{fill:url(#soc-trend-gradient)}
       .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:16px}.summary div{padding:9px 4px;text-align:center;border:1px solid color-mix(in srgb,var(--sb-text) 10%,transparent);border-radius:10px;background:color-mix(in srgb,var(--sb-text) 6%,var(--sb-surface))}.summary small,.summary b{display:block}.summary small{color:var(--sb-muted);font-size:10px}.summary b{font-size:12px;margin-top:3px}@media(max-width:450px){.summary{grid-template-columns:repeat(2,1fr)}}@media(prefers-reduced-motion:reduce){.line i{animation:none}}
@@ -206,7 +235,7 @@ class SolarBridgeCard extends HTMLElement {
     </style><ha-card>
       <h2></h2><div class="flow">
         <div class="node pv entity-item" data-key="pv_power" aria-label="Solar"><span class="icon">☀️</span><b>Solar</b><strong></strong><small class="flow-state"></small></div><div class="line pv-line" role="img"><i></i></div><div class="node inverter entity-item" data-key="inverter_power" aria-label="Inverter"><span class="icon">⚡</span><b>Inverter</b><strong></strong><small class="flow-state"></small></div><div class="line grid-line" role="img"><i></i></div><div class="node grid entity-item" data-key="grid_power" aria-label="Grid"><span class="icon">▦</span><b>Grid</b><strong></strong><small class="flow-state"></small></div>
-        <div class="node battery entity-item" data-key="battery_power" data-fallback-key="battery_soc" aria-label="Battery"><span class="icon">🔋</span><b>Battery</b><strong><span class="battery-soc"><span class="battery-soc-value"></span> <span aria-hidden="true">·</span></span><span class="battery-power"></span></strong><small class="flow-state"></small></div><div class="line battery-line" role="img"><i></i></div><div class="line load-line" role="img"><i></i></div><div class="node load entity-item" data-key="load_power" aria-label="Home"><span class="icon">⌂</span><b>Home</b><strong></strong><small class="flow-state"></small></div>
+        <div class="node battery entity-item" data-key="battery_power" data-fallback-key="battery_soc" aria-label="Battery"><span class="icon">🔋</span><b>Battery</b><small class="battery-mode" hidden></small><strong><span class="battery-soc"><span class="battery-soc-value"></span> <span aria-hidden="true">·</span></span><span class="battery-power"></span></strong><small class="flow-state"></small></div><div class="line battery-line" role="img"><i></i></div><div class="line load-line" role="img"><i></i></div><div class="node load entity-item" data-key="load_power" aria-label="Home"><span class="icon">⌂</span><b>Home</b><strong></strong><small class="flow-state"></small></div>
       </div><div class="soc entity-item" data-key="battery_soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" preserveAspectRatio="none" aria-label="24 hour battery SOC trend"><defs><linearGradient id="soc-trend-gradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--sb-accent)" stop-opacity=".38"/><stop offset="1" stop-color="var(--sb-accent)" stop-opacity="0"/></linearGradient></defs><path class="trend-area"/><path class="trend-line"/></svg></div></div>
       <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div class="entity-item" data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
       <section class="details" aria-label="System details" hidden>${DETAIL_GROUPS.map(([group, fields]) => `<section class="metric-group" data-group="${escapeHtml(group)}"><h3>${escapeHtml(group)}</h3><dl>${fields.map(([key,label]) => `<div class="metric-row entity-item" data-key="${key}" hidden><dt>${label}</dt><dd></dd></div>`).join("")}</dl></section>`).join("")}</section>
@@ -216,44 +245,57 @@ class SolarBridgeCard extends HTMLElement {
     const pv = this.value("pv_power");
     const inverter = this.value("inverter_power");
     const battery = this.value("battery_power");
-    const soc = this.value("battery_soc");
+    const mode = this.batteryMode;
+    const metricKey = this.batteryMetricKey;
+    const soc = metricKey ? this.value(metricKey) : null;
+    const batteryValue = mode === "Voltage" ? `${soc == null ? "—" : soc.toFixed(2)} V` : `${soc ?? "—"}%`;
     const load = this.value("load_power");
     const grid = this.value("grid_power");
     const text = (element, value) => { if (element.textContent !== value) element.textContent = value; };
     const systemMode = this.config.view_mode === "system";
     this._elements.card.classList.toggle("system-mode", systemMode);
+    this._elements.card.classList.toggle("voltage-mode", mode === "Voltage");
     this._elements.details.hidden = !systemMode;
     text(this._elements.title, this.config.title);
     text(this._elements.pv, formatPower(pv));
     text(this._elements.inverter, formatPower(inverter));
     text(this._elements.grid, formatPower(grid));
-    text(this._elements.batterySoc, `${soc ?? "—"}%`);
+    text(this._elements.batterySoc, batteryValue);
+    text(this._elements.batteryMode, mode === "Voltage" ? "Voltage mode" : mode === "Capacity" ? "" : mode === "No battery" ? "No battery" : "Mode unavailable");
+    this._elements.batteryMode.hidden = mode === "Capacity";
     text(this._elements.batteryPower, formatPower(battery));
     text(this._elements.load, formatPower(load));
     for (const [key, value] of Object.entries({ pv, inverter, grid, batteryPower: battery, batterySoc: soc, soc, load })) {
       this.updateValueTone(this._elements.values[key], value);
     }
-    this._elements.batterySocGroup.hidden = !this.config.battery_soc;
+    this._elements.batterySocGroup.hidden = !this.config[metricKey];
     this._elements.batteryPower.hidden = !this.config.battery_power;
     text(this._elements.flowStates.pv, this.flowState(pv, "Generating", "Reverse flow"));
     text(this._elements.flowStates.inverter, this.flowState(inverter, "Supplying", "Absorbing", "Standby"));
     text(this._elements.flowStates.grid, this.flowState(grid, "Importing", "Exporting"));
     text(this._elements.flowStates.battery, this.flowState(battery, "Discharging", "Charging"));
     text(this._elements.flowStates.load, this.flowState(load, "Consuming", "Reverse flow"));
-    text(this._elements.soc, `${soc ?? "—"}%`);
+    text(this._elements.soc, batteryValue);
+    this._elements.gauge.hidden = mode !== "Capacity";
+    text(this._elements.trendLabel, mode === "Voltage" ? "Battery voltage · 24h" : "Battery SOC · 24h");
+    this._elements.trend.setAttribute("aria-label", mode === "Voltage" ? "24 hour battery voltage trend" : "24 hour battery SOC trend");
     this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
     const now = Date.now();
-    const samples = [...(this._socHistory || [])];
+    this.loadHistory();
+    const samples = [...(this._batteryHistory || [])];
     if (soc != null) samples.push({ value: soc, time: now });
     const trend = sparklinePaths(samples, 280, 42, now - 24 * 60 * 60 * 1000, now);
     this._elements.trendLine.setAttribute("d", trend.line);
     this._elements.trendArea.setAttribute("d", trend.area);
     for (const [key] of CORE_ENTITY_FIELDS.slice(6)) text(this._elements.energy[key], this.energy(key));
+    this._elements.batteryNode.dataset.fallbackKey = metricKey || "";
+    this._elements.batteryMetric.dataset.key = metricKey || "";
     for (const item of this._elements.entityItems) this.updateEntityItem(item, item.dataset.key, item.dataset.fallbackKey);
+    if (mode === "No battery") this._elements.batteryNode.hidden = true;
     this._elements.summary.hidden = !CORE_ENTITY_FIELDS.slice(6).some(([key]) => this.config[key]);
     this._elements.lines[0].hidden = !this.entityId("pv_power") || !this.entityId("inverter_power");
     this._elements.lines[1].hidden = !this.entityId("grid_power") || !this.entityId("inverter_power");
-    this._elements.lines[2].hidden = !this.entityId("battery_power") || !this.entityId("inverter_power");
+    this._elements.lines[2].hidden = mode === "No battery" || !this.entityId("battery_power") || !this.entityId("inverter_power");
     this._elements.lines[3].hidden = !this.entityId("load_power") || !this.entityId("inverter_power");
     this.updateFlow(this._elements.lines[0], "PV to inverter", pv);
     this.updateFlow(this._elements.lines[1], "Grid flow", grid, true);
@@ -270,12 +312,17 @@ class SolarBridgeCard extends HTMLElement {
   }
 
   updateDetails(text) {
+    const mode = this.batteryMode;
+    const thresholdUnit = mode === "Voltage" ? "voltage" : mode === "Capacity" ? "soc" : null;
     for (const group of this._elements.detailGroups) {
       let visible = 0;
       for (const { key, label, row, output } of group.rows) {
         const entityId = this.config[key];
-        row.hidden = !entityId;
-        if (!entityId) continue;
+        const threshold = key.match(/^battery_(shutdown|restart|low)_(voltage|soc)$/);
+        const inactive = (group.name === "Battery management system" && mode !== "Capacity")
+          || (threshold && threshold[2] !== thresholdUnit);
+        row.hidden = !entityId || inactive;
+        if (row.hidden) continue;
         visible += 1;
         const state = this._hass?.states?.[entityId];
         const unavailable = !state || state.state === "unknown" || state.state === "unavailable"
@@ -296,14 +343,17 @@ class SolarBridgeCard extends HTMLElement {
       card: select("ha-card"), details: select(".details"), summary: select(".summary"), title: select("h2"),
       pv: select(".pv strong"), inverter: select(".inverter strong"),
       grid: select(".grid strong"), batterySoc: select(".battery-soc-value"),
+      batteryNode: select(".battery"), batteryMode: select(".battery-mode"), batteryMetric: select(".soc"),
       batterySocGroup: select(".battery-soc"), batteryPower: select(".battery-power"),
       load: select(".load strong"), soc: select(".soc>div>b"),
-      gauge: select(".gauge"), trendLine: select(".trend-line"), trendArea: select(".trend-area"),
+      gauge: select(".gauge"), trend: select(".trend"), trendLabel: select(".trendbox small"),
+      trendLine: select(".trend-line"), trendArea: select(".trend-area"),
       lines: [...this.shadowRoot.querySelectorAll(".line")],
       flowStates: Object.fromEntries(["pv", "inverter", "grid", "battery", "load"].map(key => [key, select(`.${key} .flow-state`)])),
       energy: Object.fromEntries(CORE_ENTITY_FIELDS.slice(6).map(([key]) => [key, select(`.summary [data-key="${key}"] b`)])),
       entityItems: [...this.shadowRoot.querySelectorAll(".entity-item")],
       detailGroups: DETAIL_GROUPS.map(([group, fields]) => ({
+        name: group,
         element: select(`.metric-group[data-group="${group}"]`),
         rows: fields.map(([key, label]) => {
           const row = select(`.metric-row[data-key="${key}"]`);
@@ -336,10 +386,9 @@ class SolarBridgeCard extends HTMLElement {
     const animation = line.querySelector("i").getAnimations()[0];
     if (!active || !animation) return;
     const playbackRate = (backwards ? -1 : 1) / flowDuration(value);
-    if (line._playbackRate !== playbackRate) {
+    if (animation.playbackRate !== playbackRate) {
       if (playbackRate < 0 && animation.currentTime < 1_000_000_000) animation.currentTime += 1_000_000_000;
-      animation.updatePlaybackRate(playbackRate);
-      line._playbackRate = playbackRate;
+      animation.playbackRate = playbackRate;
     }
   }
 
