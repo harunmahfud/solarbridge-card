@@ -13,34 +13,53 @@ The card has no hardcoded SolarBridge entity IDs. It works with any integration 
 
 Add the card in the dashboard UI and use its visual editor to select PV, inverter, battery, load, grid, and optional energy entities. No YAML is required.
 
-Only configured entities are shown. Selecting a topology node, battery trend,
-daily summary, or System detail row opens Home Assistant's standard entity
-details dialog; keyboard users can use Enter or Space. Numeric topology values
-change color with their state: positive values use the theme's success color,
-negative values use its warning color, zero remains neutral, and unavailable
-values use the secondary text color.
+Only configured readings are shown. Selecting a topology node, battery trend,
+daily summary, or technical row opens Home Assistant's standard entity
+details dialog; keyboard users can use Enter or Space. Solar is yellow, home
+blue, grid purple, and battery green in both HA themes. Direction labels and
+static arrows carry the meaning independently of color or animation; a negative
+power reading is not a warning. Unavailable readings use muted styling and `—`,
+not a measured zero. HA theme changes apply live.
 
 ## Presentation modes
 
-- **Overview** (default) preserves the original flow topology, battery trend,
-  and daily summaries. Existing configurations remain in this mode without
-  changes.
-- **System detail** keeps the same topology and adds textual flow states plus
-  responsive groups for configured per-string, inverter, battery, grid/load,
-  battery management system (BMS), AUX, and lifetime metrics. Groups use two
-  columns when space permits and one column on narrow cards. Unconfigured rows
-  are omitted; a configured entity that is missing, unknown, or unavailable
-  remains visible as `—` and is announced as unavailable to assistive
-  technology.
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `display_mode` | `auto` | `auto` preserves legacy visibility: overview keeps the live overview, configured battery level/history and daily totals; `view_mode: system` also exposes configured technical groups. `compact` shows essential live readings and configured daily totals, without charts or technical groups. `detailed` adds the configured 24-hour voltage chart, expandable technical groups and a separate signed inverter power reading. |
+| `flow_style` | `hub` | `hub` is a centered five-node diagram with curved connectors. `minimal` uses four live tiles and an incoming-power bar. `horizontal` uses four directional lanes. Every style works with every display mode. |
+| `show_mode_toggle` | `false` | Enables Compact/Detailed buttons. The initial selection follows `display_mode` (Auto follows legacy `view_mode`). A runtime selection is remembered in localStorage for the same entity bindings in this browser/device; it never changes YAML or the pinned flow style. With the toggle off, stored choices are ignored. If storage is blocked, switching still works for the current card instance. |
 
-Choose the mode in the visual editor, or set `view_mode: system` in YAML.
+Existing YAML needs no migration. `view_mode: overview` and `view_mode: system`
+remain supported in Auto. No entity keys were renamed or made required.
+Use **compact + minimal** for daily checks, or **detailed + hub** to investigate.
+Omitting `flow_style` always uses Hub, including when switching modes.
+
+Detailed has six expandable groups: Solar strings, Inverter, Battery, Grid and
+load, AUX, and Lifetime energy. Independent configured rows remain visible even
+with partial configuration. Missing/unknown/unavailable configured entities are
+shown as `—`; unconfigured rows and empty groups are hidden. On narrow cards,
+groups start collapsed and stack in one column. On wider cards, the first three
+start expanded in two columns. Your expansion choices survive live updates.
+Layout depends on the card's available width, not the dashboard window width.
+
+Minimal's incoming power is **solar generation + grid import + battery
+discharge** (positive contributions only). It excludes inverter power, home
+load, grid export and battery charging. Missing configured sources are marked
+unavailable, and the displayed subtotal is labelled **known**, rather than
+pretending a complete total. Nothing forces these independent measurements to
+balance. The captured 91 W solar + 608 W import − 243 W charging case shows
+**699 W incoming**, **455 W home**, and **243 W charging**. Detailed retains
+the separate **−153 W absorbing** inverter reading. In a new explicit mode,
+the Hub center can be a topology label without an inverter power entity.
 
 If configuring manually:
 
 ```yaml
 type: custom:solarbridge-card
 title: Solar power flow
-view_mode: system
+display_mode: detailed
+flow_style: hub
+show_mode_toggle: true
 pv_power: sensor.solarbridge_pv1_power
 inverter_power: sensor.solarbridge_inverter_power
 battery_power: sensor.solarbridge_battery_power
@@ -61,22 +80,19 @@ inverter_voltage: sensor.solarbridge_inverter_output_voltage
 inverter_current: sensor.solarbridge_inverter_current
 battery_voltage: sensor.solarbridge_battery_voltage
 battery_current: sensor.solarbridge_battery_current
-bms_charging_voltage: sensor.solarbridge_bms_charging_voltage
-bms_discharge_voltage: sensor.solarbridge_bms_discharge_voltage
-bms_charge_current_limit: sensor.solarbridge_bms_charge_current_limit
-bms_discharge_current_limit: sensor.solarbridge_bms_discharge_current_limit
-bms_soc: sensor.solarbridge_bms_soc
-bms_voltage: sensor.solarbridge_bms_voltage
-bms_current: sensor.solarbridge_bms_current
-bms_temperature: sensor.solarbridge_bms_temperature
 grid_voltage: sensor.solarbridge_grid_voltage
 grid_current: sensor.solarbridge_grid_current
 ```
 
-The BMS fields require `ha-solarbridge` v0.1.9 or an equivalent sensor from
-another integration. `bms_voltage` is the voltage reported by the BMS and is
-distinct from the inverter battery-terminal reading exposed as
-`battery_voltage`. All System detail fields are optional. See the
+The redesign represents one aggregate battery, not individual packs or cells.
+For compatibility, legacy BMS keys remain selectable in the editor and retain
+their old Capacity-mode visibility in **Auto + `view_mode: system`** only.
+Explicit Compact/Detailed omit the BMS group. Those keys are
+`bms_charging_voltage`, `bms_discharge_voltage`, `bms_charge_current_limit`,
+`bms_discharge_current_limit`, `bms_soc`, `bms_voltage`, `bms_current` and
+`bms_temperature`. They require `ha-solarbridge` v0.1.9 or equivalent sensors.
+`bms_voltage` remains distinct from aggregate `battery_voltage`.
+All technical fields are optional. See the
 [complete 94-entity audit](ENTITY_AUDIT.md) for every supported mapping and the
 rationale for excluding identity, raw, and time-of-use setting entities.
 
@@ -97,12 +113,14 @@ preserved; battery chemistry and BMS SOC are never used to guess the mode.
 - **Voltage:** shows battery-terminal volts to two decimals, a Voltage mode
   label, and voltage history. The percentage gauge and BMS detail group are
   hidden. No voltage-to-SOC percentage is invented.
-- **Capacity:** retains SOC text, percentage gauge, and SOC history.
+- **Capacity:** retains configured aggregate SOC text. Auto retains the existing
+  percentage gauge and SOC history; no new SOC or power trend is introduced in
+  Compact/Detailed.
 - **No battery:** hides the battery node, connector, and level/history section.
 - **Unknown/unavailable mode:** keeps configured battery power visible, labels
   the mode unavailable, and hides the level/history rather than showing stale SOC.
 
-System detail can show **Battery type** and shutdown/restart/low thresholds.
+Technical details can show **Battery type** and shutdown/restart/low thresholds.
 Configure either or both threshold sets; only the active mode's set is shown.
 Changing modes selects the matching history entity and discards late responses
 for the previous source. Clicking the level/history opens the active voltage or
@@ -151,6 +169,20 @@ verified aggregate PV power register.
 
 Power presentation uses W rounded to the nearest whole number below 1000 W. Values with an absolute magnitude of at least 1000 W are divided by 1000 and shown in kW with one decimal. Missing, empty (including whitespace-only), unavailable, or otherwise non-numeric states display `—`.
 
+The four essential readings show magnitudes with explicit direction labels.
+Inverter power remains signed and is shown only in Detailed or legacy System
+detail. Technical rows retain the original signed states and entity units.
+
+History comes only from HA's `history/period` API for the configured battery
+entity, with an actual 24-hour time window and hourly refresh. The live state
+is appended as the endpoint. Unknown, unavailable and empty history samples
+break both the trace and area fill, rather than being filtered out or converted
+to zero. HA event history can legitimately be sparse while a value is unchanged;
+elapsed time alone is not treated as an outage. Missing Recorder history shows
+**No history available**. Detailed enlarges the voltage chart with voltage axes
+and local-time timestamps; Compact hides history and Auto preserves its legacy
+placement and active battery metric. No example trace is shipped in the card.
+
 ### Power signs and status labels
 
 For entities from `ha-solarbridge`, the card interprets raw power states as
@@ -167,21 +199,19 @@ label and hide the moving stripe.
 
 `Supplying` deliberately does not imply that the inverter's energy came from
 PV: it may be converting battery power or passing through grid power. Missing
-values are labelled **Unavailable**. These labels describe the same raw signs
-already used by the connector animation; no displayed value or animation
-direction is sign-adjusted.
+values are labelled **Unavailable**. All presentations use these same raw signs
+for direction, with no polarity overrides or inferred source allocations.
 
 Flow animation is derived from each raw power value:
 
 - A line is active when the absolute value is at least 1 W.
-- The 68 px keyframe traversal takes `1800 / abs(power)` seconds, clamped to 0.45–3 seconds, so greater magnitude moves faster.
+- A seamless 68 SVG-unit dash traversal takes `1800 / abs(power)` seconds, clamped to 0.45–3 seconds, so greater magnitude moves faster.
 - Positive PV, battery, and load values use the forward direction; negative values reverse it. Grid direction is intentionally inverted: positive uses the reverse direction and negative uses forward.
-- These signs control animation only. Displayed signed values are not adjusted.
+- Static arrowheads and animation use the same direction decision. Minimal uses the same state labels and signs for its source contributions.
 - Rates are applied to the actual current browser animation, including animations recreated after dashboard hiding/reconnection; no cached connector rate can leave charging moving in the discharging direction.
-- Reduced-motion preferences disable the moving pattern while preserving the line's active/inactive indication.
+- Reduced-motion preferences disable movement while preserving static arrows, labels and active/inactive indication. Zero and unavailable power disable directional indicators.
 
-System detail displays the status labels from the sign table above. Overview
-keeps those labels hidden while using the same values and animation rules.
+Status labels are visible in all three styles, including Compact.
 
 The four daily entities should already represent today's accumulating totals and reset according to their source integration. The card performs no summing, subtraction, normalization, sign adjustment, or unit conversion on them.
 
@@ -191,5 +221,18 @@ The four daily entities should already represent today's accumulating totals and
 npm test
 npm run check
 ```
+
+The dependency-free browser fixture uses real headless Chrome (`CHROME_BIN`
+overrides `/usr/bin/google-chrome`) with mocked HA states/history, including the
+captured example. `npm test` covers both legacy views, light/dark, card widths
+284–760 px, every Compact/Detailed × flow-style combination, reduced motion,
+partial details, localStorage, history gaps, mode changes and animation
+recreation. This is not a live Home Assistant integration test.
+
+For visual review, serve the repository and open
+`test/render-fixture.html?view=system&battery=voltage&display=detailed&style=hub&theme=dark&width=354`.
+Use `display=compact`, `style=minimal|horizontal`, and
+`scenario=night|export|unavailable|zero` for other fixture states. Fixture chart
+data is illustrative; production always requests HA history.
 
 The visual direction is original and inspired by—not copied from—the dashboards in `heavenknows1978/hass-deyecloud` and `harunmahfud/hass-deyecloud`.
