@@ -34,9 +34,9 @@ remain supported in Auto. No entity keys were renamed or made required.
 Use **compact + minimal** for daily checks, or **detailed + hub** to investigate.
 Omitting `flow_style` always uses Hub, including when switching modes.
 
-Detailed has six expandable groups: Solar strings, Inverter, Battery, Grid and
-load, AUX, and Lifetime energy. Independent configured rows remain visible even
-with partial configuration. Missing/unknown/unavailable configured entities are
+Detailed has expandable groups for Solar strings, Inverter, Battery, Grid and
+load, AUX, Lifetime energy, and six optional Time of use slots. Independent
+configured rows remain visible even with partial configuration. Missing/unknown/unavailable configured entities are
 shown as `—`; unconfigured rows and empty groups are hidden. On narrow cards,
 groups start collapsed and stack in one column. On wider cards, the first three
 start expanded in two columns. Your expansion choices survive live updates.
@@ -94,7 +94,7 @@ Explicit Compact/Detailed omit the BMS group. Those keys are
 `bms_voltage` remains distinct from aggregate `battery_voltage`.
 All technical fields are optional. See the
 [complete 94-entity audit](ENTITY_AUDIT.md) for every supported mapping and the
-rationale for excluding identity, raw, and time-of-use setting entities.
+rationale for excluding identity and raw diagnostic entities.
 
 The labels and animation directions follow the first-party SolarBridge sign
 contract documented below. If another integration uses different signs, use a
@@ -141,6 +141,37 @@ battery_shutdown_soc: sensor.solarbridge_battery_shutdown_soc
 battery_restart_soc: sensor.solarbridge_battery_restart_soc
 battery_low_soc: sensor.solarbridge_battery_low_soc
 ```
+
+### Live inverter settings and Weather Shield
+
+Optional **Time of use 1–6** detail groups show each slot's start time, power
+target, mode-appropriate voltage/SOC target, and grid/generator charging flags.
+Select their entities in the editor, or configure fields as below (repeat for
+slots 2–6 using your actual entity IDs):
+
+```yaml
+tou_time_1: sensor.solarbridge_time_of_use_time_1
+tou_power_1: sensor.solarbridge_time_of_use_power_1
+tou_voltage_1: sensor.solarbridge_time_of_use_voltage_1
+tou_soc_1: sensor.solarbridge_time_of_use_soc_1
+tou_1_grid_charge: sensor.solarbridge_tou_1_grid_charge
+tou_1_generator_charge: sensor.solarbridge_tou_1_generator_charge
+```
+
+These are inverter settings, not measured power or battery levels. Select
+`battery_mode` explicitly to retain mode detection even while battery readings
+are unavailable. Configured rows follow live HA state updates, including changes
+from the panel or cloud; unavailable readings show `—`, never a saved target.
+The integration's polling determines freshness: with live-settings support in
+ha-solarbridge, settings are read every configured fast poll (10 seconds by
+default), and failed reads mark entities unavailable. A browser cannot see a
+device change before the integration reads it.
+
+The card is read-only: rendering and editor changes never call inverter-control
+services or undo external changes. Weather Shield can override inverter
+settings, but no verified local active-status entity is available. High targets
+and enabled charging alone are not a reliable storm indicator, so the card does
+not infer one. Check the Deye Cloud app for Weather Shield status and commands.
 
 ## Data and calculations
 

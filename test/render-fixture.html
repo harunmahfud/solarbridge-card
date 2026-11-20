@@ -76,9 +76,11 @@
       }
       let resolveHistory;
       let statisticsCalls = 0;
+      let serviceCalls = 0;
       const history = new Promise(resolve => { resolveHistory = resolve; });
       const makeHass = overrides => ({
         states: { ...states, ...overrides },
+        callService: () => { serviceCalls += 1; throw new Error("The card must not write inverter settings"); },
         callApi: async () => history,
         callWS: async () => {
           statisticsCalls += 1;
@@ -385,6 +387,50 @@
       await waitForUpdate();
       semantics.voltageHistoryLoaded = root.querySelector(".trend-line").getAttribute("d").includes(" C ");
 
+      const touConfig = { ...modeConfig };
+      const touStates = { ...modeStates };
+      for (const slot of [1, 2, 3, 4, 5, 6]) {
+        const fields = {
+          [`tou_time_${slot}`]: [`${String(slot * 3).padStart(2, "0")}:17`],
+          [`tou_power_${slot}`]: [String(slot * 400), "W"],
+          [`tou_voltage_${slot}`]: ["51.25", "V"], [`tou_soc_${slot}`]: ["83", "%"],
+          [`tou_${slot}_grid_charge`]: ["Disabled"], [`tou_${slot}_generator_charge`]: ["Enabled"],
+        };
+        for (const [key, [state, unit]] of Object.entries(fields)) {
+          touConfig[key] = `sensor.${key}`;
+          touStates[`sensor.${key}`] = { state, attributes: unit ? { unit_of_measurement: unit } : {} };
+        }
+      }
+      const touHass = overrides => makeHass({ ...touStates, ...overrides });
+      const slots = [1, 2, 3, 4, 5, 6];
+      card.setConfig({ ...touConfig, display_mode: "detailed" });
+      card.hass = touHass();
+      await waitForUpdate();
+      semantics.touVoltage = slots.every(slot => !row(`tou_voltage_${slot}`).hidden
+        && row(`tou_voltage_${slot}`).querySelector("dd").textContent === "51.25 V"
+        && row(`tou_soc_${slot}`).hidden && !row(`tou_time_${slot}`).hidden);
+      const externalSettings = Object.fromEntries(slots.flatMap(slot => [
+        [`sensor.tou_voltage_${slot}`, { state: "56.75", attributes: { unit_of_measurement: "V" } }],
+        [`sensor.tou_${slot}_grid_charge`, { state: "Enabled" }],
+      ]));
+      card.hass = touHass({ ...externalSettings, "sensor.shutdown_v": { state: "46.37", attributes: { unit_of_measurement: "V" } } });
+      await waitForUpdate();
+      semantics.externalTouUpdates = slots.every(slot => row(`tou_voltage_${slot}`).querySelector("dd").textContent === "56.75 V"
+        && row(`tou_${slot}_grid_charge`).querySelector("dd").textContent === "Enabled")
+        && row("battery_shutdown_voltage").querySelector("dd").textContent === "46.37 V";
+      row("tou_voltage_6").click();
+      semantics.touMoreInfo = openedEntities.at(-1) === "sensor.tou_voltage_6";
+      card.hass = touHass({ "sensor.mode": { state: "Capacity" } });
+      await waitForUpdate();
+      semantics.touCapacity = slots.every(slot => row(`tou_voltage_${slot}`).hidden && !row(`tou_soc_${slot}`).hidden
+        && row(`tou_soc_${slot}`).querySelector("dd").textContent === "83 %");
+      card.hass = touHass(Object.fromEntries(Object.keys(touStates).map(entityId => [entityId, { state: "unavailable" }])));
+      await waitForUpdate();
+      semantics.touUnavailable = slots.every(slot => row(`tou_voltage_${slot}`).hidden && row(`tou_soc_${slot}`).hidden
+        && row(`tou_time_${slot}`).querySelector("dd").textContent === "—"
+        && row(`tou_${slot}_grid_charge`).querySelector("dd").textContent === "—");
+      semantics.noServiceWrites = serviceCalls === 0;
+
       const dailyValuesRaw = summaries.map(item => item.querySelector("b").textContent).join(",") === "0.9 kWh,2.3 kWh,2.6 kWh,0.0 kWh" && statisticsCalls === 0;
       const captured = {
         "sensor.pv": { state: "91" }, "sensor.inverter": { state: "-153" },
@@ -527,7 +573,7 @@
       // HA feeds every editor change back through setConfig. Preserve both open
       // and closed sections, focused controls and external YAML updates.
       const editorGroups = [...editor.querySelectorAll("details")];
-      editorGroups.forEach((group, index) => { group.open = index === 2 || index === 4; });
+      editorGroups.forEach((group, index) => { group.open = [2, 4, 8].includes(index); });
       const voltagePicker = editorGroups[2].querySelector('[data-key="battery_voltage"]');
       voltagePicker.focus();
       for (const value of ["sensor.new_voltage", "sensor.other_voltage", ""]) {
@@ -537,7 +583,8 @@
         editor.hass = { states: { ...states } };
         await waitForUpdate();
       }
-      redesign.editorExpansionSurvivesConfigFeedback = [...editor.querySelectorAll("details")].map(group => group.open).join(",") === "false,false,true,false,true,false,false"
+      redesign.editorExpansionSurvivesConfigFeedback = editor.querySelectorAll("details").length === editorGroups.length
+        && [...editor.querySelectorAll("details")].every((group, index) => group.open === [2, 4, 8].includes(index))
         && document.activeElement === voltagePicker && !editedConfig.battery_voltage;
       editor.setConfig({ ...config, battery_voltage: "sensor.yaml_voltage", display_mode: "detailed" });
       redesign.editorExternalConfigUpdatesControls = editor.querySelector('[data-key="battery_voltage"]').value === "sensor.yaml_voltage"
@@ -638,6 +685,17 @@
         await waitForUpdate();
         if (params.get("expand") === "all") root.querySelectorAll(".metric-group").forEach(group => { group.open = true; });
       }
+      if (params.has("tou")) {
+        const mode = params.get("tou");
+        const previewConfig = Object.fromEntries(Object.entries(touConfig).filter(([key]) => key.startsWith("tou_")
+          || ["battery_mode", "battery_voltage", "battery_soc", "battery_power", "battery_shutdown_voltage", "battery_restart_voltage", "battery_low_voltage"].includes(key)));
+        card.setConfig({ ...previewConfig, title: "Current inverter settings", display_mode: "detailed" });
+        card.hass = mode === "unavailable"
+          ? touHass(Object.fromEntries(Object.keys(touStates).map(entityId => [entityId, { state: "unavailable" }])))
+          : touHass({ ...externalSettings, "sensor.mode": { state: mode === "capacity" ? "Capacity" : "Voltage" } });
+        await waitForUpdate();
+        root.querySelectorAll(".metric-group").forEach(group => { group.open = true; });
+      }
       const tests = {
         labelContrast: labelContrast >= 4.5,
         valueContrast: valueContrast >= 4.5,
@@ -649,7 +707,7 @@
         batteryValueContained: battery.scrollWidth <= battery.clientWidth,
         dailyValuesRaw,
         editorDropdownPreserved: editor.querySelector("ha-entity-picker") === openPicker && openPicker.menuOpen && document.activeElement === openPicker,
-        editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 57 && editor.querySelector('[data-key="view_mode"]').value === (systemView ? "system" : "overview"),
+        editorEntityInventory: editor.querySelectorAll("ha-entity-picker").length === 93 && editor.querySelector('[data-key="view_mode"]').value === (systemView ? "system" : "overview"),
         viewMode: viewModeCorrect,
         ...semantics,
         ...lifecycle,

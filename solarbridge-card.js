@@ -92,6 +92,11 @@ const DETAIL_GROUPS = [
     ["total_solar", "Total production"], ["total_load", "Total load consumption"],
     ["total_grid_import", "Total energy bought"], ["total_grid_export", "Total energy sold"],
   ]],
+  ...[1, 2, 3, 4, 5, 6].map(slot => [`Time of use ${slot}`, [
+    [`tou_time_${slot}`, "Start time"], [`tou_power_${slot}`, "Power target"],
+    [`tou_voltage_${slot}`, "Voltage target"], [`tou_soc_${slot}`, "SOC target"],
+    [`tou_${slot}_grid_charge`, "Grid charging"], [`tou_${slot}_generator_charge`, "Generator charging"],
+  ]]),
 ];
 const DETAIL_FIELDS = DETAIL_GROUPS.flatMap(([, fields]) => fields);
 const ENTITY_FIELDS = [...CORE_ENTITY_FIELDS, ...DETAIL_FIELDS];
@@ -446,8 +451,10 @@ class SolarBridgeCard extends HTMLElement {
       for (const { key, label, row, output } of group.rows) {
         const entityId = this.config[key];
         const threshold = key.match(/^battery_(shutdown|restart|low)_(voltage|soc)$/);
+        const touTarget = key.match(/^tou_(voltage|soc)_\d+$/);
         const inactive = (group.name === "Battery management system" && (mode !== "Capacity" || this.displayMode !== "auto"))
-          || (threshold && threshold[2] !== thresholdUnit);
+          || (threshold && threshold[2] !== thresholdUnit)
+          || (touTarget && touTarget[1] !== thresholdUnit);
         row.hidden = !entityId || inactive;
         if (row.hidden) continue;
         visible += 1;
