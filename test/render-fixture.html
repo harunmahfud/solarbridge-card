@@ -642,6 +642,108 @@
       }
       redesign.technicalGroupChoicesSurviveConfigUpdates = [...root.querySelectorAll(".metric-group")].every((group, index) => group.open === groupChoices[index]);
 
+      // Fresh-browser Auto/overview is not explicit Compact. Its first plot
+      // must fill the allocated width without shrinking the 42px height.
+      const cold = document.createElement("solarbridge-card");
+      const coldConfig = {
+        display_mode: "auto", flow_style: "minimal", show_mode_toggle: true, view_mode: "overview",
+        battery_voltage: "sensor.cold_voltage", battery_soc: "sensor.cold_soc",
+      };
+      cold.setConfig(coldConfig);
+      localStorage.removeItem(cold.modeStorageKey);
+      cold.setConfig(coldConfig);
+      cold.style.width = `${hostWidth}px`;
+      document.body.append(cold);
+      const coldNow = Date.now();
+      const coldHistory = [[24, 49], [20, 49.05], [15, 53], [12, "unavailable"], [9, 50]]
+        .map(([hours, state]) => ({ state: String(state), last_changed: new Date(coldNow - hours * 3600000).toISOString() }));
+      const coldHass = {
+        states: {
+          "sensor.cold_voltage": { state: "51", attributes: { battery_mode: "Voltage" } },
+          "sensor.cold_soc": { state: "87" },
+        },
+        callApi: async () => [coldHistory],
+      };
+      cold.hass = coldHass;
+      await waitForUpdate();
+      const coldRoot = cold.shadowRoot;
+      const coldTrend = coldRoot.querySelector(".trend");
+      const coldMeasurements = [];
+      const fillsSparkline = () => {
+        const svg = coldTrend.getBoundingClientRect();
+        const trace = coldRoot.querySelector(".trend-line").getBoundingClientRect();
+        coldMeasurements.push({ width: svg.width, height: svg.height, traceWidth: trace.width, traceHeight: trace.height, viewBox: coldTrend.getAttribute("viewBox") });
+        return Math.abs(trace.width - (svg.width - 4)) < 1 && Math.abs(trace.height - 38) < 1;
+      };
+      redesign.coldAutoUsesFullPlot = !coldRoot.querySelector(".soc").hidden && fillsSparkline();
+      const tooltip = coldRoot.querySelector(".chart-tooltip");
+      const dot = coldRoot.querySelector(".chart-point");
+      let coldMoreInfo = 0;
+      cold.addEventListener("hass-more-info", () => { coldMoreInfo += 1; });
+      const inspectCold = (hours, type = "pointermove", pointerType = "mouse") => {
+        const detailed = coldRoot.querySelector("ha-card").classList.contains("system-mode");
+        const viewBox = coldTrend.viewBox.baseVal;
+        const x = (detailed ? 50 : 2) + (1 - hours / 24) * (viewBox.width - (detailed ? 64 : 4));
+        const point = new DOMPoint(x, detailed ? 80 : 21).matrixTransform(coldTrend.getScreenCTM());
+        coldTrend.dispatchEvent(new PointerEvent(type, { clientX: point.x, clientY: point.y, pointerType, bubbles: true, composed: true }));
+      };
+      for (const mode of ["auto", "detailed"]) {
+        if (mode === "detailed") {
+          coldRoot.querySelector('[data-mode="detailed"]').click();
+          await waitForUpdate();
+        }
+        inspectCold(19);
+        const expectedTime = new Date(coldHistory[1].last_changed).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+        const viewBox = coldTrend.viewBox.baseVal;
+        const plotWidth = viewBox.width - (mode === "detailed" ? 60 : 0);
+        const plotHeight = mode === "detailed" ? viewBox.height - 56 : 42;
+        redesign[`historyTooltipSample-${mode}`] = !tooltip.hidden && !dot.hasAttribute("hidden")
+          && tooltip.querySelector("b").textContent === "49.05 V" && tooltip.querySelector("span").textContent.includes(expectedTime)
+          && Math.abs(Number(dot.getAttribute("cx")) - ((mode === "detailed" ? 50 : 2) + (plotWidth - 4) / 6)) < 1
+          && Math.abs(Number(dot.getAttribute("cy")) - ((mode === "detailed" ? 14 : 2) + .9875 * (plotHeight - 4))) < .1;
+        const labelBounds = tooltip.getBoundingClientRect(), cardBounds = cold.getBoundingClientRect();
+        redesign[`historyTooltipThemeAndBounds-${mode}`] = labelBounds.left >= cardBounds.left && labelBounds.right <= cardBounds.right
+          && labelBounds.top >= coldTrend.getBoundingClientRect().top && labelBounds.bottom <= cardBounds.bottom
+          && contrast(getComputedStyle(tooltip).color, getComputedStyle(tooltip).backgroundColor) >= 4.5;
+        cold.hass = { ...coldHass, states: { ...coldHass.states, "sensor.cold_soc": { state: "88" } } };
+        await waitForUpdate();
+        redesign[`historyTooltipSurvivesHass-${mode}`] = !tooltip.hidden && tooltip.querySelector("b").textContent === "49.05 V";
+        inspectCold(17);
+        redesign[`historyTooltipUsesTimeNotSampleIndex-${mode}`] = !tooltip.hidden && tooltip.querySelector("b").textContent === "53.00 V";
+        for (const hours of [13, 10.5]) {
+          inspectCold(hours);
+          redesign[`historyTooltipGap-${mode}-${hours}`] = tooltip.hidden && dot.hasAttribute("hidden");
+        }
+        inspectCold(19, "pointerdown", "touch");
+        coldTrend.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+        redesign[`historyTouchDoesNotOpenMoreInfo-${mode}`] = !tooltip.hidden && coldMoreInfo === 0;
+        document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+        redesign[`historyTouchDismissesOutside-${mode}`] = tooltip.hidden && dot.hasAttribute("hidden");
+        coldTrend.focus({ preventScroll: true });
+        coldTrend.dispatchEvent(new KeyboardEvent("keydown", { key: "End" }));
+        const latest = tooltip.querySelector("b").textContent;
+        coldTrend.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft" }));
+        redesign[`historyKeyboardInspection-${mode}`] = !tooltip.hidden && latest === "51.00 V" && tooltip.querySelector("b").textContent === "50.00 V";
+        coldTrend.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+        redesign[`historyEscapeDismisses-${mode}`] = tooltip.hidden && dot.hasAttribute("hidden");
+        coldTrend.blur();
+      }
+      coldRoot.querySelector('[data-mode="compact"]').click();
+      await waitForUpdate();
+      redesign.coldConfigKeepsExplicitCompactChartFree = coldRoot.querySelector(".soc").hidden;
+      localStorage.removeItem(cold.modeStorageKey);
+      cold.setConfig(coldConfig);
+      await waitForUpdate();
+      redesign.returnToAutoUsesSameSizing = fillsSparkline();
+      inspectCold(19);
+      cold.setConfig({ ...coldConfig, battery_voltage: "sensor.new_voltage" });
+      cold.hass = { ...coldHass, callApi: async () => [[]] };
+      await waitForUpdate();
+      inspectCold(19);
+      redesign.historyTooltipClearsOnMissingSource = tooltip.hidden && dot.hasAttribute("hidden");
+      cold.remove();
+      openPicker.focus({ preventScroll: true });
+
       const batteryPreview = params.get("battery");
       const modePreview = ["voltage", "unknown", "none", "missing"].includes(batteryPreview);
       card.setConfig(modePreview ? { ...modeConfig, view_mode: config.view_mode } : config);
@@ -715,6 +817,7 @@
       };
       document.querySelector("#result").textContent = JSON.stringify({
         theme: dark ? "dark" : "light", width: innerWidth, tests,
+        coldMeasurements,
         contrast: { label: labelContrast.toFixed(2), value: valueContrast.toFixed(2) }, animationOffsets,
       });
     </script>

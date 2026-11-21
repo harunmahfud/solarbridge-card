@@ -13,7 +13,7 @@ The card has no hardcoded SolarBridge entity IDs. It works with any integration 
 
 Add the card in the dashboard UI and use its visual editor to select PV, inverter, battery, load, grid, and optional energy entities. No YAML is required.
 
-Only configured readings are shown. Selecting a topology node, battery trend,
+Only configured readings are shown. Selecting a topology node, battery reading,
 daily summary, or technical row opens Home Assistant's standard entity
 details dialog; keyboard users can use Enter or Space. Solar is yellow, home
 blue, grid purple, and battery green in both HA themes. Direction labels and
@@ -218,6 +218,16 @@ placement and active battery metric (with voltage history as a fallback when
 SOC is not configured). A Capacity-mode update does not remove a configured
 Detailed voltage chart or switch its source to SOC. No example trace is shipped
 in the card.
+
+Auto's sparkline and the Detailed chart size to their visible container, including
+on first load and when a hidden dashboard becomes visible. Hover the chart or
+touch and drag horizontally to inspect the nearest recorded sample: a dot marks
+the sample, with its value, unit and local time (plus the date in Detailed).
+Unavailable gaps show no tooltip; values are not interpolated across them. Tap
+elsewhere to dismiss a touch selection; vertical swipes still scroll the dashboard.
+Keyboard users can focus the chart, use Left/Right or Home/End to inspect samples, and
+Escape to dismiss. Select the battery reading or chart label (Enter/Space on the
+battery history section) to open HA's entity details instead.
 
 Editor sections retain their open/closed state and focused controls when an
 entity selection is saved back into the editor. The card's technical groups
