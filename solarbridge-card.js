@@ -149,6 +149,11 @@ class SolarBridgeCard extends HTMLElement {
   connectedCallback() {
     this._intersecting = true;
     this._resizeObserver?.observe(this);
+    if (this._elements) this._resizeObserver?.observe(this._elements.trend);
+    this._historyOutsideHandler = event => {
+      if (!event.composedPath().includes(this._elements?.trend)) this.hideHistoryTooltip();
+    };
+    document.addEventListener("pointerdown", this._historyOutsideHandler);
     this._visibilityHandler = () => {
       this.scheduleRender();
       this.syncAnimationPlayback();
@@ -167,6 +172,8 @@ class SolarBridgeCard extends HTMLElement {
 
   disconnectedCallback() {
     document.removeEventListener("visibilitychange", this._visibilityHandler);
+    document.removeEventListener("pointerdown", this._historyOutsideHandler);
+    this.hideHistoryTooltip();
     this._observer?.disconnect();
     this._resizeObserver?.disconnect();
     if (this._renderFrame) cancelAnimationFrame(this._renderFrame);
@@ -269,7 +276,7 @@ class SolarBridgeCard extends HTMLElement {
       :host{--sb-surface:var(--ha-card-background,var(--card-background-color,#fff));--sb-text:var(--primary-text-color,#212121);--sb-muted:var(--secondary-text-color,#616161);--sb-border:var(--divider-color,color-mix(in srgb,var(--sb-text) 16%,transparent));--sb-accent:var(--primary-color,#1976d2);--sb-solar:var(--solarbridge-solar-color,light-dark(#916d00,#f2c230));--sb-home:var(--solarbridge-home-color,light-dark(#1f74c9,#4a9df0));--sb-grid:var(--solarbridge-grid-color,light-dark(#7a4fd0,#b18af2));--sb-battery:var(--solarbridge-battery-color,light-dark(#187c49,#3fbf7f));display:block;container-type:inline-size;color:var(--sb-text);font:14px/1.4 var(--paper-font-body1_-_font-family,system-ui)}
       *{box-sizing:border-box}[hidden]{display:none!important}ha-card{display:block;padding:16px;border-radius:var(--ha-card-border-radius,12px);background:var(--sb-surface);border:1px solid var(--sb-border)}
       .header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}h2{font-size:16px;line-height:1.4;margin:0;overflow-wrap:anywhere}.mode-toggle{display:flex;border:1px solid var(--sb-border);border-radius:8px;overflow:hidden;flex-shrink:0}.mode-toggle button{font:inherit;font-size:12px;min-height:36px;padding:4px 10px;border:0;color:var(--sb-muted);background:transparent;cursor:pointer}.mode-toggle button[aria-pressed=true]{background:var(--sb-border);color:var(--sb-text)}
-      .entity-item{cursor:pointer}.entity-item:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--sb-accent);outline-offset:3px}
+      .entity-item{cursor:pointer}.entity-item:focus-visible,.trend:focus-visible,button:focus-visible,summary:focus-visible{outline:2px solid var(--sb-accent);outline-offset:3px}
       .flow{position:relative;max-width:420px;aspect-ratio:360/320;margin:auto}.flow-connectors{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
       .pv,.pv-line{--node-color:var(--sb-solar)}.grid,.grid-line{--node-color:var(--sb-grid)}.load,.load-line{--node-color:var(--sb-home)}.battery,.battery-line{--node-color:var(--sb-battery)}.inverter{--node-color:var(--sb-muted)}
       .node{position:absolute;display:flex;flex-direction:column;justify-content:center;align-items:center;width:80px;height:80px;border:2px solid var(--node-color);border-radius:50%;background:var(--sb-surface);text-align:center;transform:translate(-50%,-50%)}
@@ -284,6 +291,7 @@ class SolarBridgeCard extends HTMLElement {
       [data-style=minimal] .flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;max-width:none;aspect-ratio:auto}[data-style=minimal] .flow-connectors,[data-style=minimal] .inverter{display:none}[data-style=minimal] .node{position:static;transform:none;width:auto;height:auto;min-width:0;border:1px solid var(--sb-border);border-left:4px solid var(--node-color);border-radius:10px;padding:10px;align-items:flex-start;text-align:left}[data-style=minimal] .pv{order:0}[data-style=minimal] .grid{order:1}[data-style=minimal] .load{order:2}[data-style=minimal] .battery{order:3}[data-style=minimal] .icon{display:none}[data-style=minimal] .node strong{font-size:22px}[data-style=minimal] .flow-state{position:static;font-size:12px;margin-top:3px}[data-style=minimal] .battery-soc{display:none}
       [data-style=horizontal] .flow{max-width:560px;aspect-ratio:360/320}[data-style=horizontal] .node,[data-style=horizontal] .lane-hub{width:28%;height:64px;border-radius:8px;left:14%;transform:translate(-50%,-50%);align-items:flex-start;padding:8px;text-align:left;border-width:1px}[data-style=horizontal] .pv{top:12.5%}[data-style=horizontal] .grid{top:37.5%}[data-style=horizontal] .battery{top:62.5%}[data-style=horizontal] .load{top:87.5%}[data-style=horizontal] .node .icon,[data-style=horizontal] .battery-soc,[data-style=horizontal] .inverter{display:none}[data-style=horizontal] .flow-state{top:50%;left:100%;transform:translateY(6px);width:157%;font-size:11px;text-align:center}[data-style=horizontal] .lane-hub{display:flex;position:absolute;flex-direction:column;justify-content:center;left:86%;border:1px solid var(--sb-border);font-size:12px;color:var(--sb-muted)}[data-style=horizontal] .lane-hub strong{font-size:15px;color:var(--sb-text)}
       .soc{margin-top:18px;display:grid;grid-template-columns:80px 1fr;gap:12px;align-items:end;--node-color:var(--sb-battery)}.gauge{height:8px;background:var(--sb-border);border-radius:8px;overflow:hidden}.gauge i{display:block;height:100%;width:var(--soc);background:var(--sb-battery)}.trendbox small{display:block;font-size:12px;color:var(--sb-muted);margin-bottom:6px}.trend{display:block;width:100%;height:42px;overflow:visible}.trend-line{fill:none;stroke:var(--sb-battery);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}.trend-area{fill:color-mix(in srgb,var(--sb-battery) 9%,transparent)}.chart-axes{display:none;fill:var(--sb-muted);font:11px system-ui}.chart-axes line{stroke:var(--sb-border);stroke-width:.5}.chart-axes .threshold{stroke:var(--sb-muted);stroke-dasharray:3 3}.chart-empty{font-size:12px;fill:var(--sb-muted)}.system-mode .soc{display:block}.system-mode .soc>div:first-child{display:none}.system-mode .trend{height:auto;aspect-ratio:600/210}.system-mode .chart-axes{display:block}
+      .trendbox{position:relative}.trend{touch-action:pan-y;cursor:crosshair;outline:none}.chart-point{fill:var(--sb-battery);stroke:var(--sb-surface);stroke-width:2;pointer-events:none}.chart-tooltip{position:absolute;z-index:1;display:grid;gap:1px;max-width:100%;padding:5px 8px;border:1px solid var(--sb-border);border-radius:6px;background:var(--sb-surface);color:var(--sb-text);box-shadow:0 2px 8px #0003;font-size:12px;line-height:1.25;pointer-events:none}.chart-tooltip span{font-size:11px;color:var(--sb-muted)}
       .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:18px}.summary div{min-width:0;padding:9px;border:1px solid var(--sb-border);border-radius:8px}.summary small,.summary b{display:block}.summary small{color:var(--sb-muted);font-size:12px}.summary b{font-size:17px;font-weight:600;margin-top:2px;white-space:nowrap}
       .details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:18px}.metric-group{min-width:0;padding:8px 10px;border:1px solid var(--sb-border);border-radius:8px;align-self:start}.metric-group summary{cursor:pointer;font-size:13px;font-weight:600;min-height:28px;align-content:center}.metric-group dl{margin:8px 0 2px}.metric-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:13px}.metric-row dt{min-width:0;color:var(--sb-muted)}.metric-row dd{margin:0;text-align:right;overflow-wrap:anywhere;max-width:60%}.metric-row.unavailable dd{color:var(--sb-muted)}
       @container(max-width:480px){ha-card{padding:12px}.summary,[data-style=minimal] .flow{grid-template-columns:repeat(2,minmax(0,1fr))}.details{grid-template-columns:1fr}.header{flex-wrap:wrap}.flow{max-width:360px}[data-style=hub] .flow{aspect-ratio:360/350}[data-style=hub] .node{width:72px;height:72px}[data-style=hub] .node.inverter{width:78px;height:78px}[data-style=hub] .node.battery{width:92px;height:80px}.inverter .icon,.inverter .icon svg{height:16px;width:16px}.inverter .flow-state{font-size:10px}.metric-row{padding:5px 0}.summary b{font-size:17px}}
@@ -302,7 +310,7 @@ class SolarBridgeCard extends HTMLElement {
       <div class="distribution" hidden><div class="bar-label"><span>Incoming power</span><b></b></div><div class="track-bar" role="img" aria-label="Incoming power by source">${["pv", "grid", "battery"].map(name => `<span class="${name}"></span>`).join("")}</div><div class="legend">${["pv", "grid", "battery"].map(name => `<span class="${name}"></span>`).join("")}</div></div>
       <div class="battery-indicator" hidden></div>
       <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div class="entity-item" data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
-      <div class="soc entity-item" data-key="battery_soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" aria-label="24 hour battery SOC trend"><g class="chart-axes"></g><path class="trend-area"/><path class="trend-line"/><text class="chart-empty" x="50%" y="50%" text-anchor="middle" hidden>No history available</text></svg></div></div>
+      <div class="soc entity-item" data-key="battery_soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" tabindex="0" role="img" aria-describedby="history-tooltip" aria-label="24 hour battery SOC trend"><g class="chart-axes"></g><path class="trend-area"/><path class="trend-line"/><text class="chart-empty" x="50%" y="50%" text-anchor="middle" hidden>No history available</text><circle class="chart-point" r="4" hidden aria-hidden="true"/></svg><div class="chart-tooltip" id="history-tooltip" role="tooltip" aria-live="polite" hidden><b></b><span></span></div></div></div>
       <section class="details" aria-label="System details" hidden>${DETAIL_GROUPS.map(([group, fields]) => `<details class="metric-group" data-group="${escapeHtml(group)}"${["Solar strings", "Inverter", "Battery"].includes(group) ? " open" : ""}><summary>${escapeHtml(group)}</summary><dl>${fields.map(([key,label]) => `<div class="metric-row entity-item" data-key="${key}" hidden><dt>${label}</dt><dd></dd></div>`).join("")}</dl></details>`).join("")}</section>
     </ha-card>`;
     if (!this._elements) this.cacheElements();
@@ -378,7 +386,6 @@ class SolarBridgeCard extends HTMLElement {
     this._elements.trend.setAttribute("aria-label", historyVoltage ? "24 hour battery voltage trend" : "24 hour battery SOC trend");
     this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
     this.loadHistory();
-    this.updateHistoryChart(historyValue);
     for (const [key] of CORE_ENTITY_FIELDS.slice(6)) text(this._elements.energy[key], this.energy(key));
     this._elements.batteryNode.dataset.fallbackKey = metricKey || "";
     this._elements.batteryMetric.dataset.key = historyMetric || "";
@@ -402,14 +409,23 @@ class SolarBridgeCard extends HTMLElement {
     this.updateFlow(this._elements.lines[2], "Battery flow", battery);
     this.updateFlow(this._elements.lines[3], "Load flow", load);
     this.updateDetails(text);
+    this.updateHistoryChart(historyValue);
+    this._renderedWidth = this.clientWidth;
     this.syncAnimationPlayback();
   }
 
   updateHistoryChart(current) {
     const now = Date.now(), start = now - 24 * 3600000;
-    const samples = [...(this._batteryHistory || []), { value: current, time: now }];
+    const samples = [...(this._batteryHistory || []), { value: current, time: now }].sort((a, b) => a.time - b.time);
     const detailed = this.detailed;
-    const width = detailed ? Math.max(240, this.clientWidth - 34) : 280;
+    // Measure after visibility/layout changes. A fixed 280×42 viewBox makes
+    // SVG's default aspect-ratio scaling letterbox (or shrink) the Auto trace.
+    const width = this._elements.trend.getBoundingClientRect().width;
+    if (!width) {
+      this._historyChart = null;
+      this.hideHistoryTooltip();
+      return;
+    }
     const height = detailed ? (this.clientWidth <= 480 ? 200 : 210) : 42;
     const left = detailed ? 48 : 0, top = detailed ? 12 : 0;
     const plotWidth = width - left - (detailed ? 12 : 0), plotHeight = height - top - (detailed ? 44 : 0);
@@ -435,6 +451,57 @@ class SolarBridgeCard extends HTMLElement {
       const x = left + 2 + fraction * (plotWidth - 4), timestamp = start + fraction * (now - start);
       return `<text x="${x}" y="${height - 22}" text-anchor="${fraction === 0 ? "start" : fraction === 1 ? "end" : "middle"}">${escapeHtml(time(timestamp))}${fraction === 0 || fraction === 1 ? `<tspan x="${x}" dy="14">${escapeHtml(date(timestamp))}</tspan>` : ""}</text>`;
     }).join("") : "";
+    const entityId = this.config[this.historyMetricKey];
+    const selected = this._historyChart?.entityId === entityId && samples.find(sample => sample.time === this._historySelection?.time && sample.value != null);
+    this._historyChart = { entityId, samples, start, now, width, left, top, plotWidth, plotHeight, min, max, unit };
+    if (selected) this.showHistorySample(selected);
+    else this.hideHistoryTooltip();
+  }
+
+  hideHistoryTooltip() {
+    this._historySelection = null;
+    if (!this._elements) return;
+    this._elements.chartPoint.toggleAttribute("hidden", true);
+    this._elements.chartTooltip.hidden = true;
+  }
+
+  inspectHistory(event) {
+    const chart = this._historyChart;
+    if (!chart) return;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(this._elements.trend.getScreenCTM().inverse());
+    const fraction = (point.x - chart.left - 2) / (chart.plotWidth - 4);
+    if (fraction < 0 || fraction > 1 || point.y < chart.top || point.y > chart.top + chart.plotHeight) return this.hideHistoryTooltip();
+    const timestamp = chart.start + fraction * (chart.now - chart.start);
+    const index = chart.samples.findIndex(sample => sample.time >= timestamp);
+    const next = chart.samples[index];
+    const previous = next?.time === timestamp ? next : chart.samples[index - 1];
+    // Only inspect a drawn segment, never snap across unavailable history.
+    if (previous?.value == null || next?.value == null) return this.hideHistoryTooltip();
+    this.showHistorySample(timestamp - previous.time < next.time - timestamp ? previous : next);
+  }
+
+  showHistorySample(sample) {
+    const chart = this._historyChart;
+    const x = chart.left + 2 + Math.max(0, Math.min(1, (sample.time - chart.start) / (chart.now - chart.start))) * (chart.plotWidth - 4);
+    const y = chart.top + (chart.max === chart.min ? chart.plotHeight / 2 : 2 + (1 - (sample.value - chart.min) / (chart.max - chart.min)) * (chart.plotHeight - 4));
+    this._historySelection = sample;
+    const { chartPoint, chartTooltip, trend, trendBox } = this._elements;
+    // Paths round their coordinates to tenths of a pixel too.
+    chartPoint.setAttribute("cx", x.toFixed(1));
+    chartPoint.setAttribute("cy", y.toFixed(1));
+    chartPoint.toggleAttribute("hidden", false);
+    chartTooltip.querySelector("b").textContent = `${sample.value.toFixed(2)} ${chart.unit}`;
+    chartTooltip.querySelector("span").textContent = new Date(sample.time).toLocaleString(this._hass.locale?.language, { ...(this.detailed ? { month: "short", day: "numeric" } : {}), hour: "2-digit", minute: "2-digit" });
+    chartTooltip.hidden = false;
+    const matrix = trend.getScreenCTM();
+    const screen = new DOMPoint(x, y).matrixTransform(matrix);
+    const plotTop = new DOMPoint(0, chart.top).matrixTransform(matrix).y;
+    const plotBottom = new DOMPoint(0, chart.top + chart.plotHeight).matrixTransform(matrix).y;
+    const box = trendBox.getBoundingClientRect();
+    const beside = screen.x - box.left + 10;
+    const labelX = beside + chartTooltip.offsetWidth <= box.width ? beside : screen.x - box.left - chartTooltip.offsetWidth - 10;
+    chartTooltip.style.left = `${Math.max(0, Math.min(box.width - chartTooltip.offsetWidth, labelX))}px`;
+    chartTooltip.style.top = `${Math.max(plotTop - box.top, Math.min(plotBottom - box.top - chartTooltip.offsetHeight, screen.y - box.top - chartTooltip.offsetHeight / 2))}px`;
   }
 
   flowState(value, positive, negative, idle = "Idle") {
@@ -483,6 +550,7 @@ class SolarBridgeCard extends HTMLElement {
       batterySocGroup: select(".battery-soc"), batteryPower: select(".battery-power"),
       load: select(".load strong"), soc: select(".soc>div>b"),
       gauge: select(".gauge"), trend: select(".trend"), trendLabel: select(".trendbox small"),
+      trendBox: select(".trendbox"), chartPoint: select(".chart-point"), chartTooltip: select(".chart-tooltip"),
       trendLine: select(".trend-line"), trendArea: select(".trend-area"),
       lines: [...this.shadowRoot.querySelectorAll(".line")],
       flowStates: Object.fromEntries(["pv", "inverter", "grid", "battery", "load"].map(key => [key, select(`.${key} .flow-state`)])),
@@ -503,6 +571,7 @@ class SolarBridgeCard extends HTMLElement {
       soc: this._elements.soc, load: this._elements.load,
     };
     const openDetails = event => {
+      if (event.target.closest?.(".trend")) return;
       if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
       const item = event.target.closest?.(".entity-item");
       if (!item || item.hidden) return;
@@ -512,6 +581,24 @@ class SolarBridgeCard extends HTMLElement {
     };
     this.shadowRoot.addEventListener("click", openDetails);
     this.shadowRoot.addEventListener("keydown", openDetails);
+    const trend = this._elements.trend;
+    for (const type of ["pointermove", "pointerdown"]) trend.addEventListener(type, event => this.inspectHistory(event));
+    trend.addEventListener("pointerleave", event => { if (event.pointerType !== "touch") this.hideHistoryTooltip(); });
+    for (const type of ["pointercancel", "blur"]) trend.addEventListener(type, () => this.hideHistoryTooltip());
+    trend.addEventListener("focus", () => {
+      if (!trend.matches(":focus-visible") || this._historySelection) return;
+      const sample = this._historyChart?.samples.findLast(sample => sample.value != null);
+      if (sample) this.showHistorySample(sample);
+    });
+    trend.addEventListener("keydown", event => {
+      if (event.key === "Escape") return this.hideHistoryTooltip();
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const samples = this._historyChart?.samples.filter(sample => sample.value != null) || [];
+      const index = samples.indexOf(this._historySelection);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? samples.length - 1 : index + (event.key === "ArrowLeft" ? -1 : 1);
+      if (samples.length) this.showHistorySample(samples[Math.max(0, Math.min(samples.length - 1, next))]);
+    });
     this._elements.toggle.addEventListener("click", event => {
       const mode = event.target.closest("button")?.dataset.mode;
       if (!mode) return;
@@ -520,8 +607,13 @@ class SolarBridgeCard extends HTMLElement {
       this.scheduleRender();
     });
     if ("ResizeObserver" in window) {
-      this._resizeObserver = new ResizeObserver(() => this.scheduleRender());
+      this._resizeObserver = new ResizeObserver(() => {
+        // A render can itself resize/show the SVG. Late notifications for
+        // geometry we already drew must not cause another full card render.
+        if (this.clientWidth !== this._renderedWidth || trend.getBoundingClientRect().width !== (this._historyChart?.width || 0)) this.scheduleRender();
+      });
       this._resizeObserver.observe(this);
+      this._resizeObserver.observe(trend);
     }
   }
 
