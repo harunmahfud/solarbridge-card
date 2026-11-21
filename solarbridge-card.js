@@ -410,6 +410,7 @@ class SolarBridgeCard extends HTMLElement {
     this.updateFlow(this._elements.lines[3], "Load flow", load);
     this.updateDetails(text);
     this.updateHistoryChart(historyValue);
+    this._renderedWidth = this.clientWidth;
     this.syncAnimationPlayback();
   }
 
@@ -452,7 +453,7 @@ class SolarBridgeCard extends HTMLElement {
     }).join("") : "";
     const entityId = this.config[this.historyMetricKey];
     const selected = this._historyChart?.entityId === entityId && samples.find(sample => sample.time === this._historySelection?.time && sample.value != null);
-    this._historyChart = { entityId, samples, start, now, left, top, plotWidth, plotHeight, min, max, unit };
+    this._historyChart = { entityId, samples, start, now, width, left, top, plotWidth, plotHeight, min, max, unit };
     if (selected) this.showHistorySample(selected);
     else this.hideHistoryTooltip();
   }
@@ -606,7 +607,11 @@ class SolarBridgeCard extends HTMLElement {
       this.scheduleRender();
     });
     if ("ResizeObserver" in window) {
-      this._resizeObserver = new ResizeObserver(() => this.scheduleRender());
+      this._resizeObserver = new ResizeObserver(() => {
+        // A render can itself resize/show the SVG. Late notifications for
+        // geometry we already drew must not cause another full card render.
+        if (this.clientWidth !== this._renderedWidth || trend.getBoundingClientRect().width !== (this._historyChart?.width || 0)) this.scheduleRender();
+      });
       this._resizeObserver.observe(this);
       this._resizeObserver.observe(trend);
     }
