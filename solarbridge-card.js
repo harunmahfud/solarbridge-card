@@ -215,9 +215,8 @@ class SolarBridgeCard extends HTMLElement {
   get historyMetricKey() {
     const metric = this.batteryMetricKey;
     if (!metric) return null;
-    // Voltage history is useful in Capacity mode too; it is not inferred SOC.
-    if (this.displayMode === "detailed") return this.config.battery_voltage ? "battery_voltage" : null;
-    return this.config[metric] ? metric : this.config.battery_voltage ? "battery_voltage" : null;
+    const fallback = metric === "battery_soc" ? "battery_voltage" : "battery_soc";
+    return this.config[metric] ? metric : this.config[fallback] ? fallback : null;
   }
 
   async loadHistory() {
@@ -380,11 +379,11 @@ class SolarBridgeCard extends HTMLElement {
     this._elements.distribution.querySelector(".track-bar").setAttribute("aria-label", this._elements.distribution.querySelector(".legend").textContent);
     this._elements.batteryIndicator.hidden = !["minimal", "horizontal"].includes(style) || mode === "No battery" || !(this.config.battery_power || this.config[metricKey]);
     text(this._elements.batteryIndicator, `Battery ${this.flowState(battery, "discharging", "charging", "idle").toLowerCase()}${battery != null && Math.abs(battery) >= 1 ? ` at ${magnitude(battery)}` : ""}${this.config[metricKey] ? ` · ${batteryValue}` : ""}${mode !== "Capacity" ? ` · ${this._elements.batteryMode.textContent}` : ""}`);
-    text(this._elements.soc, historyVoltage ? `${historyValue == null ? "—" : historyValue.toFixed(2)} V` : batteryValue);
+    text(this._elements.soc, historyVoltage ? `${historyValue == null ? "—" : historyValue.toFixed(2)} V` : `${historyValue ?? "—"}%`);
     this._elements.gauge.hidden = !historyMetric || historyVoltage;
     text(this._elements.trendLabel, historyVoltage ? "Battery voltage · 24h" : "Battery SOC · 24h");
     this._elements.trend.setAttribute("aria-label", historyVoltage ? "24 hour battery voltage trend" : "24 hour battery SOC trend");
-    this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, soc ?? 0))}%`);
+    this._elements.gauge.style.setProperty("--soc", `${Math.max(0, Math.min(100, historyValue ?? 0))}%`);
     this.loadHistory();
     for (const [key] of CORE_ENTITY_FIELDS.slice(6)) text(this._elements.energy[key], this.energy(key));
     this._elements.batteryNode.dataset.fallbackKey = metricKey || "";

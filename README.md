@@ -25,7 +25,7 @@ not a measured zero. HA theme changes apply live.
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `display_mode` | `auto` | `auto` preserves legacy visibility: overview keeps the live overview, configured battery level/history and daily totals; `view_mode: system` also exposes configured technical groups. `compact` shows essential live readings and configured daily totals, without charts or technical groups. `detailed` adds the configured 24-hour voltage chart, expandable technical groups and a separate signed inverter power reading. |
+| `display_mode` | `auto` | `auto` preserves legacy visibility: overview keeps the live overview, configured battery level/history and daily totals; `view_mode: system` also exposes configured technical groups. `compact` shows essential live readings and configured daily totals, without charts or technical groups. `detailed` adds the configured 24-hour battery chart, expandable technical groups and a separate signed inverter power reading. |
 | `flow_style` | `hub` | `hub` is a centered five-node diagram with curved connectors. `minimal` uses four live tiles and an incoming-power bar. `horizontal` uses four directional lanes. Every style works with every display mode. |
 | `show_mode_toggle` | `false` | Enables Compact/Detailed buttons. The initial selection follows `display_mode` (Auto follows legacy `view_mode`). A runtime selection is remembered in localStorage for the same entity bindings in this browser/device; it never changes YAML or the pinned flow style. With the toggle off, stored choices are ignored. If storage is blocked, switching still works for the current card instance. |
 
@@ -111,16 +111,23 @@ over measurement attributes. Without either source, legacy SOC behavior is
 preserved; battery chemistry and BMS SOC are never used to guess the mode.
 
 - **Voltage:** shows battery-terminal volts to two decimals, a Voltage mode
-  label, and voltage history. The percentage gauge and BMS detail group are
-  hidden. No voltage-to-SOC percentage is invented.
-- **Capacity:** retains configured aggregate SOC text. Auto retains the existing
-  percentage gauge and SOC history when SOC is configured, falling back to
-  configured voltage history otherwise. Detailed shows configured voltage
-  history independently of the SOC reading; no new SOC or power trend is
-  introduced in Compact/Detailed.
+  label, and voltage history. The BMS detail group is hidden. No voltage-to-SOC
+  percentage is invented.
+- **Capacity:** retains configured aggregate SOC text, percentage gauge and SOC
+  history.
 - **No battery:** hides the battery node, connector, and level/history section.
 - **Unknown/unavailable mode:** keeps configured battery power visible, labels
   the mode unavailable, and hides the level/history rather than showing stale SOC.
+
+In both Auto and Detailed, history follows the operation mode: SOC (%) in
+Capacity, voltage (V) in Voltage. If that mode's sensor is not configured, the
+chart uses the other configured sensor, including its own reading, units and
+percentage gauge only for SOC. A configured but unavailable sensor shows gaps,
+not a different metric. Explicit Compact remains chart-free.
+Battery type is separate: on the validated Deye profile, register 200 reports
+chemistry (e.g. Lithium), while register 213 reports operation mode. Selecting
+Lithium alone does not establish Capacity mode; the mode entity or `battery_mode`
+attribute remains authoritative.
 
 Technical details can show **Battery type** and shutdown/restart/low thresholds.
 Configure either or both threshold sets; only the active mode's set is shown.
@@ -194,7 +201,7 @@ verified aggregate PV power register.
 | Battery SOC text | `battery_soc` | Raw numeric entity state with `%` appended. The gauge width clamps this value to 0–100%; the displayed number itself is not clamped. |
 | Battery voltage text | `battery_voltage`, when mode is `Voltage` | Raw numeric volts formatted to two decimals with `V` appended, replacing the SOC text. No percentage gauge or derived SOC. |
 | Battery SOC · 24h | Recorder history for `battery_soc` | Numeric states returned for the preceding 24 hours plus the current state as a live endpoint. Samples use their actual timestamps on the horizontal axis and are min/max-normalized vertically, then rendered as a smooth 2 px curve with a translucent area fill. History refreshes hourly. This affects only the graph, not the SOC value. |
-| Battery voltage · 24h | Recorder history for `battery_voltage`, when mode is `Voltage` | Same time-based plotting as SOC, using voltage samples only; the vertical normalization is not a battery capacity estimate. |
+| Battery voltage · 24h | Recorder history for `battery_voltage` | Same time-based plotting as SOC, using voltage samples only; the vertical normalization is not a battery capacity estimate. History follows operation mode, with either metric available as a fallback when the preferred sensor is not configured. |
 | Solar today | `daily_solar` | Raw current numeric entity state, assumed kWh, rounded to one decimal. It is not calculated from `pv_power` and does not use Recorder statistic `change` or `sum`. |
 | Load today | `daily_load` | Raw current numeric entity state, assumed kWh, rounded to one decimal. |
 | Imported today | `daily_grid_import` | Raw current numeric entity state, assumed kWh, rounded to one decimal. |
@@ -212,12 +219,11 @@ is appended as the endpoint. Unknown, unavailable and empty history samples
 break both the trace and area fill, rather than being filtered out or converted
 to zero. HA event history can legitimately be sparse while a value is unchanged;
 elapsed time alone is not treated as an outage. Missing Recorder history shows
-**No history available**. Detailed enlarges the voltage chart with voltage axes
-and local-time timestamps; Compact hides history and Auto preserves its legacy
-placement and active battery metric (with voltage history as a fallback when
-SOC is not configured). A Capacity-mode update does not remove a configured
-Detailed voltage chart or switch its source to SOC. No example trace is shipped
-in the card.
+**No history available**. Detailed enlarges the active battery chart with % or V
+axes and local-time timestamps; Auto uses the same series in its sparkline.
+Mode changes replace the series without mixing SOC and voltage samples; late
+responses for the previous source are ignored. Compact hides history. No example
+trace is shipped in the card.
 
 Auto's sparkline and the Detailed chart size to their visible container, including
 on first load and when a hidden dashboard becomes visible. Hover the chart or
