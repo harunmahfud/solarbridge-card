@@ -147,6 +147,25 @@ Changing modes selects the matching history entity and discards late responses
 for the previous source. Clicking the level/history opens the active voltage or
 SOC entity, not a fixed SOC dialog.
 
+Battery level is prominent in every display mode, including Compact: Hub uses a
+ring, while Minimal and Horizontal use a bar. Shutdown, low and restart readings
+mark the gauge and appear in a wrapping legend below it; the 24-hour history
+also shows dashed threshold lines with a separate legend. On narrow Minimal
+cards the full-width battery tile comes first.
+
+With valid low and restart thresholds, the battery state is **Normal** at or
+above restart, **Reserve** below restart, and **Critical** below low. Without
+both thresholds (or when unavailable or reversed), the reading stays neutral
+with no state label. A sticky header badge repeats the active level, state
+colour and charge/discharge direction; clicking it opens that level's entity.
+Missing values show `—` and clear the state and gauge fill.
+
+Voltage mode uses V throughout, including the gauge, thresholds and badge.
+Its explicitly labelled voltage scale fits the current reading and configured
+thresholds, with padding; it is **not** a charge percentage or an estimate of
+SoC. Explicit incompatible sensor units are not converted. No new YAML keys,
+battery capacity settings or time estimates are introduced.
+
 Example additions to an existing card (use your actual entity IDs):
 
 ```yaml

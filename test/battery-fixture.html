@@ -1,0 +1,80 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{margin:0;padding:18px;background:#eef0f3}body.dark{background:#111318;--ha-card-background:#1c1f26;--primary-text-color:#e6e8ec;--secondary-text-color:#aeb5c1;color-scheme:dark}solarbridge-card{display:block;max-width:100%}#result{display:none}</style>
+</head><body><solarbridge-card></solarbridge-card><pre id="result">pending</pre>
+<script type="module">
+import '../solarbridge-card.js';
+const params = new URLSearchParams(location.search), card = document.querySelector('solarbridge-card');
+document.body.className = params.get('theme') === 'dark' ? 'dark' : '';
+card.style.width = `${Number(params.get('width') || 760)}px`;
+const config = { title:'SolarBridge', battery_mode:'sensor.mode', battery_soc:'sensor.soc', battery_voltage:'sensor.voltage', battery_power:'sensor.power', pv_power:'sensor.pv', grid_power:'sensor.grid', load_power:'sensor.load', inverter_power:'sensor.inverter', show_mode_toggle:true };
+for (const metric of ['soc','voltage']) for (const name of ['shutdown','low','restart']) config[`battery_${name}_${metric}`] = `sensor.${name}_${metric}`;
+const entity = (state, unit) => ({ state:String(state), attributes:unit ? {unit_of_measurement:unit} : {} });
+let states = {
+  'sensor.mode':entity('Capacity'), 'sensor.soc':entity(74,'%'), 'sensor.voltage':entity(51.2,'V'),
+  'sensor.power':entity(-1200,'W'), 'sensor.pv':entity(2400,'W'), 'sensor.grid':entity(120,'W'), 'sensor.load':entity(1320,'W'), 'sensor.inverter':entity(1320,'W'),
+  'sensor.shutdown_soc':entity(5,'%'), 'sensor.low_soc':entity(15,'%'), 'sensor.restart_soc':entity(50,'%'),
+  'sensor.shutdown_voltage':entity(44,'V'), 'sensor.low_voltage':entity(46,'V'), 'sensor.restart_voltage':entity(50,'V'),
+};
+const hass = () => ({ states:{...states}, themes:{darkMode:params.get('theme') === 'dark'}, callService:()=>{throw Error('Read only')}, callApi:async (_, path) => [Array.from({length:49}, (_,i) => ({state:i===23 || i===24 ? 'unavailable' : i===48 ? states[path.includes('sensor.voltage') ? 'sensor.voltage' : 'sensor.soc'].state : String(path.includes('sensor.voltage') ? 48 + Math.sin(i/7)*3 : 44 + Math.sin(i/7)*30),last_changed:new Date(Date.now()-(48-i)*1800000).toISOString()}))] });
+const tests = {}, wait = () => new Promise(resolve=>setTimeout(resolve,75));
+const root = () => card.shadowRoot, $ = selector => root().querySelector(selector);
+const visible = element => element?.getBoundingClientRect().width > 0 && element?.getBoundingClientRect().height > 0;
+const rect = element => element.getBoundingClientRect();
+const emphasis = expected => ['.level-ticks line','.level-bar span','.chart-thresholds line'].every(selector => {
+  const ticks = [...root().querySelectorAll(selector)], opacity = tick => Number(getComputedStyle(tick).opacity);
+  const strongest = ticks.filter(tick => opacity(tick) > Math.min(...ticks.map(opacity)));
+  return strongest.length === (expected ? 1 : 0) && strongest.every(tick => tick.dataset.threshold === expected);
+});
+const update = async (settings={}, readings={}) => { states = {...states,...readings}; card.setConfig({...config,display_mode:'detailed',...settings}); card.hass=hass(); await wait(); };
+for (const flow_style of ['hub','minimal','horizontal']) for (const display_mode of ['auto','compact','detailed']) for (const mode of ['Capacity','Voltage']) {
+  await update({flow_style,display_mode},{'sensor.mode':entity(mode)});
+  const key = `${flow_style}-${display_mode}-${mode}`, voltage=mode==='Voltage';
+  tests[`${key}-level`] = visible($('.battery-soc-value')) && $('.battery-soc-value').textContent === (voltage ? '51.20 V' : '74%') && visible($('.battery-badge')) && $('.badge-value').textContent === (voltage ? '51.20 V' : '74%');
+  tests[`${key}-gauge`] = visible($(flow_style==='hub' ? '.level-ring' : '.level-bar')) && $('.battery-state').textContent==='Normal' && $('.level-ticks').children.length===3;
+  tests[`${key}-legend`] = [...root().querySelectorAll('.battery-thresholds')].some(element=>visible(element) && element.textContent.includes(voltage ? 'Shutdown 44 V' : 'Shutdown 5 %') && element.textContent.includes(voltage ? 'Restart 50 V' : 'Restart 50 %'));
+  const node = $('.node.battery'), bounds=rect(node), text=rect($('.battery-soc-value'));
+  tests[`${key}-contained`] = text.left>=bounds.left && text.right<=bounds.right && $('ha-card').scrollWidth <= card.clientWidth;
+  if (flow_style==='minimal' && card.clientWidth<=480) tests[`${key}-battery-first`] = bounds.bottom <= rect($('.node.pv')).top && Math.abs(bounds.width-rect($('.flow')).width)<1;
+}
+for (const [mode,metric,unit,cases] of [
+  ['Capacity','soc','%',[[50,'Normal'],[49.9,'Reserve'],[15,'Reserve'],[14.9,'Critical'],[5,'Critical'],[0,'Critical']]],
+  ['Voltage','voltage','V',[[50,'Normal'],[49.99,'Reserve'],[46,'Reserve'],[45.99,'Critical']]],
+]) for (const [value,state] of cases) {
+  await update({}, {'sensor.mode':entity(mode), [`sensor.${metric}`]:entity(value,unit)});
+  tests[`boundary-${metric}-${value}`] = $('.battery-state').textContent===state && $('.battery-badge').dataset.state===state && $('.battery-badge').title.includes(`${state} ·`);
+  tests[`threshold-emphasis-${metric}-${value}`] = emphasis(state==='Reserve' ? 'restart' : state==='Critical' ? 'low' : null);
+}
+await update({}, {'sensor.mode':entity('Capacity'),'sensor.soc':entity(74,'%')});
+tests.socFill = $('.level-fill').getAttribute('stroke-dasharray')==='74 100';
+tests.historyThresholds = $('.chart-thresholds').children.length===3 && $('.history-thresholds').textContent.includes('Shutdown 5 %') && $('.history-thresholds').textContent.includes('Low 15 %') && $('.trend-line').getAttribute('d').split('M ').length>=3;
+const labels = [...$('.history-thresholds').children].map(rect);
+tests.noCollidingLegend = labels.every((a,i)=>labels.every((b,j)=>i===j || a.right<=b.left || b.right<=a.left || a.bottom<=b.top || b.bottom<=a.top));
+await update({}, {'sensor.mode':entity('Voltage'),'sensor.voltage':entity(49,'V')});
+tests.cleanVoltageSwitch = $('.battery-state').textContent==='Reserve' && $('.history-thresholds').textContent.includes('Shutdown 44 V') && !$('.history-thresholds').textContent.includes('%') && $('.history-thresholds').textContent.includes('Restart 50 V') && [...root().querySelectorAll('ha-card>.battery-thresholds')].every(element=>element.textContent.includes('Voltage scale'));
+for (const power of [-30,-1,-.5,0,.5,1,30]) {
+  await update({}, {'sensor.power':entity(power,'W')});
+  tests[`direction-${power}`] = $('.badge-direction').textContent === (power<=-1 ? '↑' : power>=1 ? '↓' : '·') && $('.battery-badge').getAttribute('aria-label').includes(power<=-1 ? 'Charging' : power>=1 ? 'Discharging' : 'Idle');
+}
+let opened;
+card.addEventListener('hass-more-info',event=>opened=event.detail.entityId);
+$('.battery-badge').click();
+tests.badgeMoreInfo = opened==='sensor.voltage' && $('.battery-badge').tabIndex===0;
+await update({}, {'sensor.voltage':entity('unavailable','V')});
+tests.noStaleUnavailable = $('.badge-value').textContent==='— V' && $('.battery-state').textContent==='' && $('.battery-badge').dataset.state==='' && $('.level-fill').hasAttribute('hidden') && $('.level-bar i').style.width==='0%' && $('.badge-direction').textContent==='' && emphasis(null);
+states['sensor.voltage']=entity(45,'V'); card.hass=hass(); await wait();
+tests.liveRecovery = $('.badge-value').textContent==='45.00 V' && $('.battery-state').textContent==='Critical' && emphasis('low');
+await update({}, {'sensor.voltage':entity(51000,'mV')});
+tests.unitSafety = $('.badge-value').textContent==='— V' && $('.battery-state').textContent==='' && $('.trend-line').getAttribute('d')==='';
+const noThresholds = Object.fromEntries(Object.entries(config).filter(([key])=>!/^battery_(low|restart|shutdown)_/.test(key)));
+card.setConfig({...noThresholds,display_mode:'detailed'}); states['sensor.voltage']=entity(51.2,'V'); card.hass=hass(); await wait();
+tests.noInventedState = $('.battery-state').textContent==='' && $('.battery-badge').dataset.state==='' && $('.level-ticks').children.length===0 && $('.chart-thresholds').children.length===0;
+await update({}, {'sensor.restart_voltage':entity('unavailable','V')});
+tests.unavailableThresholdNeutral = $('.battery-state').textContent==='' && emphasis(null);
+await update({}, {'sensor.mode':entity('No battery')});
+tests.noBattery = $('.battery-badge').hidden && $('.node.battery').hidden;
+// Leave a stable, representative preview after the assertions.
+states['sensor.restart_voltage']=entity(50,'V');
+await update({flow_style:params.get('style') || 'hub',display_mode:params.get('display') || 'detailed'}, {'sensor.mode':entity(params.get('mode') || 'Capacity'),'sensor.soc':entity(params.get('value') || 74,'%'),'sensor.voltage':entity(params.get('value') || 51.2,'V'),'sensor.power':entity(-1200,'W')});
+document.querySelector('#result').textContent=JSON.stringify({tests});
+</script></body></html>

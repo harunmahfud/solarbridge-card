@@ -231,6 +231,30 @@ class SolarBridgeCard extends HTMLElement {
     return this.batteryMode === "Capacity" ? "battery_soc" : null;
   }
 
+  batteryLevel(metric = this.batteryMetricKey) {
+    const voltage = metric === "battery_voltage", unit = voltage ? "V" : "%";
+    const value = metric ? this.value(metric, unit) : null;
+    const thresholds = metric ? ["shutdown", "low", "restart"].map(name => ({
+      name, label: name[0].toUpperCase() + name.slice(1),
+      value: this.value(`battery_${name}_${voltage ? "voltage" : "soc"}`, unit),
+    })).filter(item => item.value != null && (voltage || (item.value >= 0 && item.value <= 100))) : [];
+    const low = thresholds.find(item => item.name === "low")?.value;
+    const restart = thresholds.find(item => item.name === "restart")?.value;
+    const state = value == null || low == null || restart == null || low > restart ? ""
+      : value < low ? "Critical" : value < restart ? "Reserve" : "Normal";
+    for (const item of thresholds) {
+      item.active = metric === this.batteryMetricKey && (state === "Reserve" && item.name === "restart" || state === "Critical" && item.name === "low");
+    }
+    // This is a labelled voltage scale, never a conversion from voltage to SOC.
+    const values = [...thresholds.map(item => item.value), ...(value == null ? [] : [value])];
+    const padding = Math.max(.5, (Math.max(...values) - Math.min(...values)) * .15);
+    const min = voltage && values.length ? Math.floor((Math.min(...values) - padding) * 10) / 10 : 0;
+    const max = voltage && values.length ? Math.ceil((Math.max(...values) + padding) * 10) / 10 : voltage ? 1 : 100;
+    const position = number => Math.max(0, Math.min(100, (number - min) / (max - min) * 100));
+    const description = state ? `${state} · ${state === "Normal" ? `at or above restart ${restart}` : state === "Reserve" ? `below restart ${restart}` : `below low ${low}`} ${unit}` : "";
+    return { value, unit, voltage, thresholds, state, description, min, max, position };
+  }
+
   get historyMetricKey() {
     const metric = this.batteryMetricKey;
     if (!metric) return null;
@@ -324,17 +348,28 @@ class SolarBridgeCard extends HTMLElement {
       .tou{margin-top:18px}.tou h3,.tou h4{font-size:13px;font-weight:600;margin:0 0 8px}.tou h3{color:var(--sb-muted)}.tou-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.tou-card{border:1px solid var(--sb-border);border-radius:10px;padding:12px;min-width:0}.tou-card.current{border-color:var(--sb-accent)}.tou-card small,.tou-card p{color:var(--sb-muted);font-size:12px}.tou-card strong{display:block;font-size:24px;line-height:1.3;margin:4px 0}.tou-card p{margin:4px 0 8px}.tou-card>div{font-size:13px}.tou-badge{display:inline-block;font-size:11px;border-radius:4px;padding:2px 5px;color:var(--sb-muted);background:var(--sb-border);margin:2px 0}.tou-badge.on{color:var(--sb-grid);background:color-mix(in srgb,var(--sb-grid) 12%,transparent)}.tou-all{border:1px solid var(--sb-border);border-radius:8px;margin-top:8px;padding:0 10px}.tou-all summary{cursor:pointer;font-weight:600;font-size:13px;min-height:44px;align-content:center}.tou table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px}.tou th,.tou td{padding:7px 5px;text-align:left;border-bottom:1px solid var(--sb-border);overflow-wrap:anywhere}.tou thead th{font-weight:500;color:var(--sb-muted)}.tou tbody th{font-weight:500}.tou tr.current{background:color-mix(in srgb,var(--sb-accent) 12%,transparent)}.tou-chart{margin-top:16px}.tou-legend{display:flex;gap:16px;font-size:11px;color:var(--sb-muted);margin-bottom:6px}.tou-legend span:first-child{color:var(--sb-accent)}.tou-legend span:last-child{color:var(--sb-battery)}.trend-line.tou-target{stroke:var(--sb-accent);stroke-dasharray:5 4}.tou-now{pointer-events:none}.tou-now line{stroke:var(--sb-muted);stroke-dasharray:2 3}.tou-now text{fill:var(--sb-muted);font:11px system-ui}
       @container(max-width:480px){.tou-cards{grid-template-columns:1fr}.tou .tou-power{display:none}.tou-all{padding:0 6px}.tou th,.tou td{padding:6px 3px}.tou th:first-child{width:21%}.tou td.tou-time{width:29%}.tou-badge{font-size:10px;padding:2px 4px}}
       .tou td button{display:block;width:100%;min-height:32px;border:0;padding:0;background:transparent;color:inherit;text-align:inherit;font:inherit;cursor:pointer}.tou td button:disabled{cursor:default}
+      .header{position:sticky;top:var(--header-height,0px);z-index:4;background:var(--sb-surface);padding:8px 0;flex-wrap:wrap}.header h2{flex:1;min-width:100px}.battery-badge{display:inline-flex;align-items:center;gap:6px;border:1px solid currentColor;border-radius:20px;padding:5px 9px;min-height:36px;font-size:13px;font-weight:600;white-space:nowrap;background:var(--sb-surface)}.battery-badge svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8}
+      .battery-level{--sb-level:var(--sb-muted)}.battery-level[data-state=Normal]{--sb-level:light-dark(#187c49,#65d89c)}.battery-level[data-state=Reserve]{--sb-level:light-dark(#966000,#efb64d)}.battery-level[data-state=Critical]{--sb-level:light-dark(#bf3030,#ff8989)}.battery-badge,.battery-state{color:var(--sb-level)}.battery-state{display:block;font-size:11px;line-height:1.4;font-weight:600}.battery-state:empty{display:none}.battery-meter{position:absolute;inset:0;pointer-events:none}.level-ring{width:100%;height:100%;overflow:visible;fill:none}.level-ring circle{stroke-width:6}.level-track{stroke:var(--sb-border)}.level-fill{stroke:var(--sb-level);stroke-linecap:round;transform:rotate(-90deg);transform-origin:center}.level-ticks line{stroke:var(--sb-muted);stroke-width:1;opacity:.7}.level-ticks [data-active=true]{stroke:var(--sb-threshold);stroke-width:1.5;opacity:1}.level-bar{display:none;position:relative;height:10px;background:var(--sb-border);border-radius:6px;margin:8px 0;width:100%}.level-bar i{display:block;height:100%;background:var(--sb-level);border-radius:6px}.level-bar span{position:absolute;top:-1px;bottom:-1px;width:1px;background:var(--sb-muted);opacity:.7;transform:translateX(-.5px)}.level-bar [data-active=true]{background:var(--sb-threshold);width:1.5px;opacity:1;transform:translateX(-.75px)}
+      [data-threshold=shutdown]{--sb-threshold:light-dark(#934444,#e39494)}[data-threshold=low]{--sb-threshold:light-dark(#bf3030,#ff8989)}[data-threshold=restart]{--sb-threshold:light-dark(#966000,#efb64d)}
+      .battery-thresholds{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 12px;color:var(--sb-muted);font-size:10px;margin:8px 0}.battery-thresholds span{white-space:nowrap}.battery-thresholds [data-threshold]::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--sb-threshold);margin-right:4px;vertical-align:1px}.battery-thresholds .scale{white-space:normal}.node .battery-thresholds{display:none}.battery-thresholds:empty{display:none}
+      [data-style=hub] .flow{aspect-ratio:360/360}[data-style=hub] .node.battery{width:112px;height:112px;border:0;border-radius:50%;--node-color:var(--sb-level)}[data-style=hub] .battery-soc{font-size:23px;line-height:1.3;color:var(--sb-text)}[data-style=hub] .battery-power{font-size:12px;color:var(--sb-muted)}[data-style=hub] .battery .flow-state{color:var(--sb-battery)}
+      [data-style=minimal] .flow{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(160px,2fr)}[data-style=minimal] .node:not(.battery) strong{font-size:clamp(14px,3cqi,22px)}[data-style=minimal] .battery,[data-style=horizontal] .battery{border-color:var(--sb-level)}[data-style=minimal] .battery-soc,[data-style=horizontal] .battery-soc{display:block;color:var(--sb-text);font-size:24px}[data-style=minimal] .battery-power,[data-style=horizontal] .battery-power{font-size:12px;color:var(--sb-muted)}[data-style=minimal] .battery-meter,[data-style=horizontal] .battery-meter{position:static;width:100%;order:4}[data-style=minimal] .level-ring,[data-style=horizontal] .level-ring{display:none}[data-style=minimal] .level-bar,[data-style=horizontal] .level-bar{display:block}[data-style=minimal] .node .battery-thresholds{display:flex;justify-content:flex-start;margin:4px 0 0}[data-style=minimal] .flow~.battery-thresholds{display:none}
+      [data-style=horizontal] .flow{width:100%;min-height:400px}[data-style=horizontal] .node.battery{height:116px}[data-style=horizontal] .battery-soc{font-size:19px}
+      @container(max-width:480px){[data-style=hub] .flow{aspect-ratio:360/390}[data-style=minimal] .flow{grid-template-columns:repeat(3,minmax(0,1fr))}[data-style=minimal] .node.battery{grid-column:1/-1;order:-1}[data-style=minimal] .node:not(.battery) strong{font-size:18px}[data-style=minimal] .node{padding:8px}.mode-toggle{margin-left:auto}}
+      @container(max-width:320px){[data-style=hub] .flow{aspect-ratio:360/430}[data-style=horizontal] .battery-soc{font-size:15px}}
+      .chart-thresholds{fill:none;stroke-width:1;stroke-dasharray:2 3}.chart-thresholds line{stroke:var(--sb-muted);opacity:.4;vector-effect:non-scaling-stroke}.chart-thresholds [data-active=true]{stroke:var(--sb-threshold);opacity:.75}.history-thresholds{justify-content:flex-start}.node.battery:not([data-has-level=true]){border:1px solid var(--sb-muted)}.entity-item,.trend,.detail-groups{scroll-margin-top:calc(var(--sb-header-space,0px) + var(--header-height,0px) + 8px)}
     </style><ha-card>
-      <div class="header"><h2></h2><div class="mode-toggle" role="group" aria-label="Display mode" hidden><button type="button" data-mode="compact">Compact</button><button type="button" data-mode="detailed">Detailed</button></div></div><div class="flow">
+      <div class="header"><h2></h2><button type="button" class="battery-badge battery-level entity-item" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="18" height="12" rx="2"/><path d="M22 10v4M6 9v6m4-6v6m4-6v6"/></svg><span class="badge-value"></span><span class="badge-direction" aria-hidden="true"></span></button><div class="mode-toggle" role="group" aria-label="Display mode" hidden><button type="button" data-mode="compact">Compact</button><button type="button" data-mode="detailed">Detailed</button></div></div><div class="flow">
         <svg class="flow-connectors" viewBox="0 0 360 320" preserveAspectRatio="none" aria-label="Power flow">${["pv", "grid", "battery", "load"].map(name => `<g class="line ${name}-line" role="img"><path class="track"/><path class="pulse"/><path class="arrow" d="M-4 -4 L3 0 L-4 4 Z"/></g>`).join("")}</svg>
         <div class="node pv entity-item" data-key="pv_power" aria-label="Solar"><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 1v3m0 16v3M1 12h3m16 0h3M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2"/></svg></span><b>Solar</b><strong></strong><small class="flow-state"></small></div>
         <div class="node inverter entity-item" data-key="inverter_power" aria-label="Inverter"><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="m13 6-5 7h7l-4 5"/></svg></span><b>Inverter</b><strong></strong><small class="flow-state"></small></div>
         <div class="node grid entity-item" data-key="grid_power" aria-label="Grid"><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 2-7 20m7-20 7 20M8 6h8M6 12h12M4 18h16M8 12l8 6m0-6-8 6"/></svg></span><b>Grid</b><strong></strong><small class="flow-state"></small></div>
-        <div class="node battery entity-item" data-key="battery_power" data-fallback-key="battery_soc" aria-label="Battery"><b>Battery</b><small class="battery-mode" hidden></small><strong><span class="battery-soc"><span class="battery-soc-value"></span></span><span class="battery-power"></span></strong><small class="flow-state"></small></div>
+        <div class="node battery battery-level entity-item" data-key="battery_power" data-fallback-key="battery_soc" aria-label="Battery"><b>Battery</b><small class="battery-mode" hidden></small><strong><span class="battery-soc"><span class="battery-soc-value"></span></span><span class="battery-state"></span><span class="battery-power"></span></strong><div class="battery-meter"><svg class="level-ring" viewBox="0 0 112 112" aria-hidden="true"><circle class="level-track" cx="56" cy="56" r="51"/><circle class="level-fill" cx="56" cy="56" r="51" pathLength="100"/><g class="level-ticks"></g></svg><div class="level-bar" aria-hidden="true"><i></i></div><div class="battery-thresholds"></div></div><small class="flow-state"></small></div>
         <div class="node load entity-item" data-key="load_power" aria-label="Home"><span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m2 11 10-9 10 9M5 9v12h14V9M10 21v-7h4v7"/></svg></span><b>Home</b><strong></strong><small class="flow-state"></small></div>
         ${[12.5, 37.5, 62.5, 87.5].map(top => `<div class="lane-hub" style="top:${top}%">Inverter</div>`).join("")}
       </div>
       <div class="inverter-reading entity-item" data-key="inverter_power" hidden></div>
+      <div class="battery-thresholds"></div>
       <div class="distribution" hidden><div class="bar-label"><span>Incoming power</span><b></b></div><div class="track-bar" role="img" aria-label="Incoming power by source">${["pv", "grid", "battery"].map(name => `<span class="${name}"></span>`).join("")}</div><div class="legend">${["pv", "grid", "battery"].map(name => `<span class="${name}"></span>`).join("")}</div></div>
       <div class="battery-indicator" hidden></div>
       <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div class="entity-item" data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
@@ -358,10 +393,11 @@ class SolarBridgeCard extends HTMLElement {
     const battery = this.value("battery_power");
     const mode = this.batteryMode;
     const metricKey = this.batteryMetricKey;
-    const soc = metricKey ? this.value(metricKey) : null;
+    const level = this.batteryLevel();
+    const soc = level.value;
     const historyMetric = this.historyMetricKey;
     const historyVoltage = historyMetric === "battery_voltage";
-    const historyValue = historyMetric ? this.value(historyMetric) : null;
+    const historyValue = historyMetric ? this.value(historyMetric, historyVoltage ? "V" : "%") : null;
     const batteryValue = mode === "Voltage" ? `${soc == null ? "—" : soc.toFixed(2)} V` : `${soc ?? "—"}%`;
     const load = this.value("load_power");
     const grid = this.value("grid_power");
@@ -429,6 +465,7 @@ class SolarBridgeCard extends HTMLElement {
     this._elements.batteryMetric.dataset.key = historyMetric || "";
     for (const item of this._elements.entityItems) this.updateEntityItem(item, item.dataset.key, item.dataset.fallbackKey);
     if (mode === "No battery") this._elements.batteryNode.hidden = true;
+    this.updateBatteryLevel(level, batteryValue, battery);
     this._elements.batteryMetric.hidden ||= this.displayMode === "compact";
     // The hub is a topology anchor, not an inferred inverter measurement.
     if (style === "hub" && this.displayMode !== "auto") this.shadowRoot.querySelector(".inverter").hidden = false;
@@ -453,12 +490,59 @@ class SolarBridgeCard extends HTMLElement {
     this.syncAnimationPlayback();
   }
 
+  updateBatteryLevel(level, formatted, power) {
+    const root = this.shadowRoot, node = this._elements.batteryNode;
+    const badge = root.querySelector(".battery-badge"), meter = node.querySelector(".battery-meter");
+    const configured = !!this.config[this.batteryMetricKey];
+    const { value, state, description, thresholds, position, voltage, unit } = level;
+    const direction = this.flowState(power, "Discharging", "Charging");
+    for (const element of [node, badge]) {
+      element.dataset.state = state;
+      element.title = description;
+    }
+    node.dataset.hasLevel = String(configured);
+    node.querySelector(".battery-state").textContent = state;
+    node.setAttribute("aria-label", `${node.getAttribute("aria-label")}${description ? `, ${description}` : ""}`);
+    meter.hidden = !configured;
+    const percent = value == null ? 0 : position(value);
+    const fill = meter.querySelector(".level-fill");
+    fill.setAttribute("stroke-dasharray", `${percent} 100`);
+    fill.toggleAttribute("hidden", value == null || percent === 0);
+    meter.querySelector(".level-bar i").style.width = `${percent}%`;
+    meter.querySelectorAll(".level-bar span").forEach(tick => tick.remove());
+    meter.querySelector(".level-ticks").innerHTML = thresholds.map(item => {
+      const angle = position(item.value) / 100 * Math.PI * 2 - Math.PI / 2;
+      return `<line data-threshold="${item.name}" data-active="${item.active}" x1="${56 + Math.cos(angle) * 47}" y1="${56 + Math.sin(angle) * 47}" x2="${56 + Math.cos(angle) * 55}" y2="${56 + Math.sin(angle) * 55}"/>`;
+    }).join("");
+    for (const item of thresholds) {
+      const tick = document.createElement("span");
+      tick.dataset.threshold = item.name;
+      tick.dataset.active = String(item.active);
+      tick.style.left = `${position(item.value)}%`;
+      meter.querySelector(".level-bar").append(tick);
+    }
+    // Labels live in flowing legend rows, never at the ticks' coordinates.
+    const legend = thresholds.map(item => `<span data-threshold="${item.name}">${item.label} ${item.value} ${unit}</span>`).join("")
+      + (voltage && configured && (value != null || thresholds.length) ? `<span class="scale">Voltage scale ${level.min}–${level.max} V</span>` : "");
+    for (const element of root.querySelectorAll(".battery-meter .battery-thresholds, ha-card>.battery-thresholds")) {
+      element.innerHTML = legend;
+      element.hidden = !configured;
+    }
+    badge.dataset.key = this.batteryMetricKey || "";
+    this.updateEntityItem(badge, badge.dataset.key);
+    badge.querySelector(".badge-value").textContent = formatted;
+    badge.querySelector(".badge-direction").textContent = value == null || power == null ? "" : this.flowState(power, "↓", "↑", "·");
+    badge.setAttribute("aria-label", `Battery ${formatted}${description ? `, ${description}` : ""}, ${direction}`);
+    badge.title = badge.getAttribute("aria-label");
+    this._elements.card.style.setProperty("--sb-header-space", `${root.querySelector(".header").offsetHeight}px`);
+  }
+
   updateHistoryChart(current, name = "history", day, schedules = []) {
     const elements = this._chartElements[name];
     const now = Date.now(), end = day?.end ?? now, start = day?.start ?? end - 24 * 3600000;
     const unit = (day ? this.batteryMetricKey : this.historyMetricKey) === "battery_voltage" ? "V" : "%";
-    const reported = this._hass.states[this.config[this.batteryMetricKey]]?.attributes?.unit_of_measurement;
-    const actual = name === "history" || (this.historyMetricKey === this.batteryMetricKey && (!reported || reported === unit));
+    const reported = this._hass.states[this.config[day ? this.batteryMetricKey : this.historyMetricKey]]?.attributes?.unit_of_measurement;
+    const actual = (!reported || reported === unit) && (name === "history" || this.historyMetricKey === this.batteryMetricKey);
     const history = [...(this._batteryHistory || [])].filter(sample => sample.time <= now).sort((a, b) => a.time - b.time);
     const before = history.findLast(sample => sample.time < start);
     const samples = actual ? [...(before ? [{ ...before, time: start }] : []), ...history.filter(sample => sample.time >= start), { value: current, time: now }] : [];
@@ -474,7 +558,8 @@ class SolarBridgeCard extends HTMLElement {
     const height = detailed ? (this.clientWidth <= 480 ? 200 : 210) : 42;
     const left = detailed ? 48 : 0, top = detailed ? 12 : 0;
     const plotWidth = width - left - (detailed ? 12 : 0), plotHeight = height - top - (detailed ? 44 : 0);
-    const values = [...samples, ...schedules].filter(sample => sample.value != null && Number.isFinite(sample.value)).map(sample => sample.value);
+    const thresholds = name === "history" ? this.batteryLevel(this.historyMetricKey).thresholds : [];
+    const values = [...samples, ...schedules, ...thresholds].filter(sample => sample.value != null && Number.isFinite(sample.value)).map(sample => sample.value);
     const min = Math.min(...values), max = Math.max(...values);
     const trend = sparklinePaths(samples, plotWidth, plotHeight, start, end, [min, max]);
     elements.trend.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -495,6 +580,23 @@ class SolarBridgeCard extends HTMLElement {
       const x = left + 2 + fraction * (plotWidth - 4), timestamp = start + fraction * (end - start);
       return `<text x="${x}" y="${height - 22}" text-anchor="${fraction === 0 ? "start" : fraction === 1 ? "end" : "middle"}">${day && fraction === 1 ? "24:00" : escapeHtml(time(timestamp))}${!day && (fraction === 0 || fraction === 1) ? `<tspan x="${x}" dy="14">${escapeHtml(date(timestamp))}</tspan>` : ""}</text>`;
     }).join("") : "";
+    let markers = elements.trend.querySelector(".chart-thresholds");
+    if (!markers) {
+      markers = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      markers.classList.add("chart-thresholds");
+      elements.trend.insertBefore(markers, elements.trendLine);
+    }
+    markers.innerHTML = thresholds.map(item => {
+      const y = top + (max === min ? plotHeight / 2 : 2 + (1 - (item.value - min) / (max - min)) * (plotHeight - 4));
+      return `<line data-threshold="${item.name}" data-active="${item.active}" x1="${left + 2}" x2="${left + plotWidth - 2}" y1="${y}" y2="${y}"><title>${item.label} ${item.value} ${unit}</title></line>`;
+    }).join("");
+    let legend = elements.trendBox.querySelector(".history-thresholds");
+    if (!legend) {
+      legend = document.createElement("div");
+      legend.className = "history-thresholds battery-thresholds";
+      elements.trendBox.append(legend);
+    }
+    legend.innerHTML = thresholds.map(item => `<span data-threshold="${item.name}">${item.label} ${item.value} ${unit}</span>`).join("");
     const entityId = this.config[day ? this.batteryMetricKey : this.historyMetricKey];
     const selected = this._charts[name]?.entityId === entityId && samples.find(sample => sample.time === this._chartSelections[name]?.time && sample.value != null);
     this._charts[name] = { entityId, samples, start, now: end, width, left, top, plotWidth, plotHeight, min, max, unit, day, schedules };

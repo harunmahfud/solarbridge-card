@@ -33,12 +33,14 @@ test("renders accessibly in light/dark themes at desktop/mobile sizes", async ()
 
   try {
     for (const [theme, width] of [["light",760],["dark",480],["light",354],["dark",284]]) {
-      const url = `http://127.0.0.1:${port}/test/tou-fixture.html?theme=${theme}&width=${width}`;
-      const { stdout } = await execFileAsync(chrome, ["--headless", "--no-sandbox", "--disable-gpu", "--force-prefers-reduced-motion", "--virtual-time-budget=10000", "--dump-dom", url], { maxBuffer: 2 ** 20 });
-      const match = stdout.match(/<pre id="result">([^<]+)<\/pre>/);
-      assert.ok(match && match[1] !== "pending", `TOU results exist for ${theme} at ${width}px`);
-      const result = JSON.parse(match[1].replaceAll("&quot;", '"'));
-      assert.deepEqual(Object.entries(result.tests).filter(([, passed]) => !passed), [], `${theme} ${width}px: ${JSON.stringify(result)}`);
+      for (const fixture of ["tou", "battery"]) {
+        const url = `http://127.0.0.1:${port}/test/${fixture}-fixture.html?theme=${theme}&width=${width}`;
+        const { stdout } = await execFileAsync(chrome, ["--headless", "--no-sandbox", "--disable-gpu", "--force-prefers-reduced-motion", "--virtual-time-budget=10000", "--dump-dom", url], { maxBuffer: 2 ** 20 });
+        const match = stdout.match(/<pre id="result">([^<]+)<\/pre>/);
+        assert.ok(match && match[1] !== "pending", `${fixture} results exist for ${theme} at ${width}px`);
+        const result = JSON.parse(match[1].replaceAll("&quot;", '"'));
+        assert.deepEqual(Object.entries(result.tests).filter(([, passed]) => !passed), [], `${fixture} ${theme} ${width}px: ${JSON.stringify(result)}`);
+      }
     }
     for (const view of ["overview", "system"]) {
       for (const theme of ["light", "dark"]) {
