@@ -294,7 +294,7 @@ class SolarBridgeCard extends HTMLElement {
       .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:18px}.summary div{min-width:0;padding:9px;border:1px solid var(--sb-border);border-radius:8px}.summary small,.summary b{display:block}.summary small{color:var(--sb-muted);font-size:12px}.summary b{font-size:17px;font-weight:600;margin-top:2px;white-space:nowrap}
       .details{margin-top:18px}.details-toolbar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}.details h3{margin:0;font-size:13px;font-weight:600}.details-toolbar h3{color:var(--sb-muted)}.details-actions{display:flex;gap:6px}.details-actions button{font:inherit;font-size:12px;color:var(--sb-text);background:transparent;border:1px solid var(--sb-border);border-radius:6px;min-height:36px;padding:4px 10px;cursor:pointer}.detail-groups{columns:2;column-gap:8px}.metric-group{break-inside:avoid;min-width:0;padding:8px 10px;border:1px solid var(--sb-border);border-radius:8px;margin-bottom:8px}.metric-group summary{cursor:pointer;font-size:13px;font-weight:600;min-height:28px;align-content:center;overflow-wrap:anywhere}.detail-brief{display:block;font-size:12px;font-weight:400;color:var(--sb-muted);margin-top:3px}.metric-group[open] .detail-brief{display:none}.metric-group dl{margin:8px 0 2px}.metric-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:13px}.metric-row dt{min-width:0;color:var(--sb-muted)}.metric-row dd{margin:0;text-align:right;overflow-wrap:anywhere;max-width:60%}.metric-row.unavailable dd{color:var(--sb-muted)}
       .detail-tiles,.detail-panel-title,.detail-hint{display:none}.detail-tile{font:inherit;color:var(--sb-text);background:transparent;border:1px solid var(--sb-border);border-radius:8px;padding:10px;text-align:left;cursor:pointer;min-width:0;overflow-wrap:anywhere}.detail-tile[aria-expanded=true]{border-color:var(--sb-accent);box-shadow:inset 0 0 0 1px var(--sb-accent)}.tile-name{display:block;font-size:12px;font-weight:600;margin-bottom:6px}.tile-value{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;font-size:12px;margin-top:3px}.tile-value small{color:var(--sb-muted);font-size:11px}.tile-value b{font-weight:500}.tile-value:nth-child(2) b{font-size:16px;font-weight:600}.tile-count{display:block;color:var(--sb-muted);font-size:11px;margin-top:8px}
-      @container(max-width:480px){.details-actions{display:none}.detail-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.detail-groups{columns:auto}.details .detail-panel-title{display:block;margin:12px 0 0;padding:10px 12px;border:1px solid var(--sb-accent);border-bottom:0;border-radius:8px 8px 0 0}.metric-group{display:none;margin:0;border-color:var(--sb-accent);border-top:0;border-radius:0 0 8px 8px;padding:0 12px 10px}.metric-group.selected{display:block}.metric-group summary{display:none}.metric-group dl{margin:0}.detail-hint{display:block;color:var(--sb-muted);font-size:12px;margin:10px 0 0}}
+      @container(max-width:480px){.details-actions{display:none}.detail-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.detail-groups{columns:auto;grid-column:1/-1;min-width:0;scroll-margin:8px}.details .detail-panel-title{display:block;margin:0;padding:10px 12px;border:1px solid var(--sb-accent);border-bottom:0;border-radius:8px 8px 0 0}.metric-group{display:none;margin:0;border-color:var(--sb-accent);border-top:0;border-radius:0 0 8px 8px;padding:0 12px 10px}.metric-group.selected{display:block}.metric-group summary{display:none}.metric-group dl{margin:0}.detail-hint{display:block;color:var(--sb-muted);font-size:12px;margin:10px 0 0}}
       @container(max-width:480px){ha-card{padding:12px}.summary,[data-style=minimal] .flow{grid-template-columns:repeat(2,minmax(0,1fr))}.header{flex-wrap:wrap}.flow{max-width:360px}[data-style=hub] .flow{aspect-ratio:360/350}[data-style=hub] .node{width:72px;height:72px}[data-style=hub] .node.inverter{width:78px;height:78px}[data-style=hub] .node.battery{width:92px;height:80px}.inverter .icon,.inverter .icon svg{height:16px;width:16px}.inverter .flow-state{font-size:10px}.metric-row{padding:5px 0}.summary b{font-size:17px}}
       @container(max-width:320px){[data-style=hub] .flow{aspect-ratio:360/400}.node strong{font-size:13px}[data-style=hub] .node.battery{width:88px;height:80px}.flow-state{font-size:11px}[data-style=horizontal] .node,[data-style=horizontal] .lane-hub{padding:5px}[data-style=horizontal] .flow-state{font-size:10px}.summary b{font-size:15px}}
     </style><ha-card>
@@ -560,13 +560,32 @@ class SolarBridgeCard extends HTMLElement {
       group.element.classList.toggle("selected", selected);
       group.element.open = narrow ? selected : (this._detailState.open[group.name] ?? true);
     }
-    const selected = this._elements.detailGroups.find(group => !group.element.hidden && group.name === this._detailState.selected);
+    const visibleGroups = this._elements.detailGroups.filter(group => !group.element.hidden);
+    const selectedIndex = visibleGroups.findIndex(group => group.name === this._detailState.selected);
+    const selected = visibleGroups[selectedIndex];
     const title = this.shadowRoot.querySelector(".detail-panel-title");
-    title.parentElement.setAttribute("aria-label", narrow && selected ? selected.name : "Technical readings");
+    const panel = title.parentElement;
+    const tiles = this.shadowRoot.querySelector(".detail-tiles");
+    // Reuse the full-reading DOM, after the last visible tile in this row.
+    // Outside the phone layout it returns to the desktop masonry position.
+    const rowEnd = Math.min(selectedIndex + (selectedIndex % 2 === 0 ? 1 : 0), visibleGroups.length - 1);
+    const anchor = narrow && selected ? visibleGroups[rowEnd].tile : tiles;
+    if (anchor.nextElementSibling !== panel) anchor.after(panel);
+    panel.setAttribute("aria-label", narrow && selected ? selected.name : "Technical readings");
     text(title, selected?.name || "");
     title.hidden = !selected;
     this.shadowRoot.querySelector(".detail-hint").hidden = !!selected;
-    this._elements.details.hidden = !this.detailed || !this._elements.detailGroups.some(group => !group.element.hidden);
+    this._elements.details.hidden = !this.detailed || !visibleGroups.length;
+    if (this._revealDetailPanel && narrow && selected && this.detailed) {
+      // Nearest leaves an already visible panel alone, including in HA's
+      // nested scrollers. For a tall panel, keep its heading in view instead.
+      panel.scrollIntoView({
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+        block: panel.getBoundingClientRect().height > innerHeight - 16 ? "start" : "nearest",
+        inline: "nearest",
+      });
+    }
+    this._revealDetailPanel = false;
   }
 
   saveDetailState() {
@@ -619,6 +638,7 @@ class SolarBridgeCard extends HTMLElement {
       });
       group.tile.addEventListener("click", () => {
         this._detailState.selected = this._detailState.selected === group.name ? null : group.name;
+        this._revealDetailPanel = this._detailState.selected !== null;
         this.saveDetailState();
         this.scheduleRender();
       });
