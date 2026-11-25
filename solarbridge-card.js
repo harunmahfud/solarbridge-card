@@ -242,6 +242,9 @@ class SolarBridgeCard extends HTMLElement {
     const restart = thresholds.find(item => item.name === "restart")?.value;
     const state = value == null || low == null || restart == null || low > restart ? ""
       : value < low ? "Critical" : value < restart ? "Reserve" : "Normal";
+    for (const item of thresholds) {
+      item.active = metric === this.batteryMetricKey && (state === "Reserve" && item.name === "restart" || state === "Critical" && item.name === "low");
+    }
     // This is a labelled voltage scale, never a conversion from voltage to SOC.
     const values = [...thresholds.map(item => item.value), ...(value == null ? [] : [value])];
     const padding = Math.max(.5, (Math.max(...values) - Math.min(...values)) * .15);
@@ -346,14 +349,15 @@ class SolarBridgeCard extends HTMLElement {
       @container(max-width:480px){.tou-cards{grid-template-columns:1fr}.tou .tou-power{display:none}.tou-all{padding:0 6px}.tou th,.tou td{padding:6px 3px}.tou th:first-child{width:21%}.tou td.tou-time{width:29%}.tou-badge{font-size:10px;padding:2px 4px}}
       .tou td button{display:block;width:100%;min-height:32px;border:0;padding:0;background:transparent;color:inherit;text-align:inherit;font:inherit;cursor:pointer}.tou td button:disabled{cursor:default}
       .header{position:sticky;top:var(--header-height,0px);z-index:4;background:var(--sb-surface);padding:8px 0;flex-wrap:wrap}.header h2{flex:1;min-width:100px}.battery-badge{display:inline-flex;align-items:center;gap:6px;border:1px solid currentColor;border-radius:20px;padding:5px 9px;min-height:36px;font-size:13px;font-weight:600;white-space:nowrap;background:var(--sb-surface)}.battery-badge svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8}
-      .battery-level{--sb-level:var(--sb-muted)}.battery-level[data-state=Normal]{--sb-level:light-dark(#187c49,#65d89c)}.battery-level[data-state=Reserve]{--sb-level:light-dark(#966000,#efb64d)}.battery-level[data-state=Critical]{--sb-level:light-dark(#bf3030,#ff8989)}.battery-badge,.battery-state{color:var(--sb-level)}.battery-state{display:block;font-size:11px;line-height:1.4;font-weight:600}.battery-state:empty{display:none}.battery-meter{position:absolute;inset:0;pointer-events:none}.level-ring{width:100%;height:100%;overflow:visible;fill:none}.level-ring circle{stroke-width:6}.level-track{stroke:var(--sb-border)}.level-fill{stroke:var(--sb-level);stroke-linecap:round;transform:rotate(-90deg);transform-origin:center}.level-ticks{stroke:var(--sb-text);stroke-width:2}.level-bar{display:none;position:relative;height:10px;background:var(--sb-border);border-radius:6px;margin:8px 0;width:100%}.level-bar i{display:block;height:100%;background:var(--sb-level);border-radius:6px}.level-bar span{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--sb-text);transform:translateX(-1px)}
-      .battery-thresholds{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 12px;color:var(--sb-muted);font-size:11px;margin:8px 0}.battery-thresholds span{white-space:nowrap}.battery-thresholds .scale{white-space:normal}.node .battery-thresholds{display:none}.battery-thresholds:empty{display:none}
+      .battery-level{--sb-level:var(--sb-muted)}.battery-level[data-state=Normal]{--sb-level:light-dark(#187c49,#65d89c)}.battery-level[data-state=Reserve]{--sb-level:light-dark(#966000,#efb64d)}.battery-level[data-state=Critical]{--sb-level:light-dark(#bf3030,#ff8989)}.battery-badge,.battery-state{color:var(--sb-level)}.battery-state{display:block;font-size:11px;line-height:1.4;font-weight:600}.battery-state:empty{display:none}.battery-meter{position:absolute;inset:0;pointer-events:none}.level-ring{width:100%;height:100%;overflow:visible;fill:none}.level-ring circle{stroke-width:6}.level-track{stroke:var(--sb-border)}.level-fill{stroke:var(--sb-level);stroke-linecap:round;transform:rotate(-90deg);transform-origin:center}.level-ticks line{stroke:var(--sb-muted);stroke-width:1;opacity:.7}.level-ticks [data-active=true]{stroke:var(--sb-threshold);stroke-width:1.5;opacity:1}.level-bar{display:none;position:relative;height:10px;background:var(--sb-border);border-radius:6px;margin:8px 0;width:100%}.level-bar i{display:block;height:100%;background:var(--sb-level);border-radius:6px}.level-bar span{position:absolute;top:-1px;bottom:-1px;width:1px;background:var(--sb-muted);opacity:.7;transform:translateX(-.5px)}.level-bar [data-active=true]{background:var(--sb-threshold);width:1.5px;opacity:1;transform:translateX(-.75px)}
+      [data-threshold=shutdown]{--sb-threshold:light-dark(#934444,#e39494)}[data-threshold=low]{--sb-threshold:light-dark(#bf3030,#ff8989)}[data-threshold=restart]{--sb-threshold:light-dark(#966000,#efb64d)}
+      .battery-thresholds{display:flex;justify-content:center;flex-wrap:wrap;gap:4px 12px;color:var(--sb-muted);font-size:10px;margin:8px 0}.battery-thresholds span{white-space:nowrap}.battery-thresholds [data-threshold]::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--sb-threshold);margin-right:4px;vertical-align:1px}.battery-thresholds .scale{white-space:normal}.node .battery-thresholds{display:none}.battery-thresholds:empty{display:none}
       [data-style=hub] .flow{aspect-ratio:360/360}[data-style=hub] .node.battery{width:112px;height:112px;border:0;border-radius:50%;--node-color:var(--sb-level)}[data-style=hub] .battery-soc{font-size:23px;line-height:1.3;color:var(--sb-text)}[data-style=hub] .battery-power{font-size:12px;color:var(--sb-muted)}[data-style=hub] .battery .flow-state{color:var(--sb-battery)}
       [data-style=minimal] .flow{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(160px,2fr)}[data-style=minimal] .node:not(.battery) strong{font-size:clamp(14px,3cqi,22px)}[data-style=minimal] .battery,[data-style=horizontal] .battery{border-color:var(--sb-level)}[data-style=minimal] .battery-soc,[data-style=horizontal] .battery-soc{display:block;color:var(--sb-text);font-size:24px}[data-style=minimal] .battery-power,[data-style=horizontal] .battery-power{font-size:12px;color:var(--sb-muted)}[data-style=minimal] .battery-meter,[data-style=horizontal] .battery-meter{position:static;width:100%;order:4}[data-style=minimal] .level-ring,[data-style=horizontal] .level-ring{display:none}[data-style=minimal] .level-bar,[data-style=horizontal] .level-bar{display:block}[data-style=minimal] .node .battery-thresholds{display:flex;justify-content:flex-start;margin:4px 0 0}[data-style=minimal] .flow~.battery-thresholds{display:none}
       [data-style=horizontal] .flow{width:100%;min-height:400px}[data-style=horizontal] .node.battery{height:116px}[data-style=horizontal] .battery-soc{font-size:19px}
       @container(max-width:480px){[data-style=hub] .flow{aspect-ratio:360/390}[data-style=minimal] .flow{grid-template-columns:repeat(3,minmax(0,1fr))}[data-style=minimal] .node.battery{grid-column:1/-1;order:-1}[data-style=minimal] .node:not(.battery) strong{font-size:18px}[data-style=minimal] .node{padding:8px}.mode-toggle{margin-left:auto}}
       @container(max-width:320px){[data-style=hub] .flow{aspect-ratio:360/430}[data-style=horizontal] .battery-soc{font-size:15px}}
-      .chart-thresholds{fill:none;stroke:var(--sb-muted);stroke-width:1;stroke-dasharray:4 4}.history-thresholds{justify-content:flex-start}.node.battery:not([data-has-level=true]){border:1px solid var(--sb-muted)}.entity-item,.trend,.detail-groups{scroll-margin-top:calc(var(--sb-header-space,0px) + var(--header-height,0px) + 8px)}
+      .chart-thresholds{fill:none;stroke-width:1;stroke-dasharray:2 3}.chart-thresholds line{stroke:var(--sb-muted);opacity:.4;vector-effect:non-scaling-stroke}.chart-thresholds [data-active=true]{stroke:var(--sb-threshold);opacity:.75}.history-thresholds{justify-content:flex-start}.node.battery:not([data-has-level=true]){border:1px solid var(--sb-muted)}.entity-item,.trend,.detail-groups{scroll-margin-top:calc(var(--sb-header-space,0px) + var(--header-height,0px) + 8px)}
     </style><ha-card>
       <div class="header"><h2></h2><button type="button" class="battery-badge battery-level entity-item" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="18" height="12" rx="2"/><path d="M22 10v4M6 9v6m4-6v6m4-6v6"/></svg><span class="badge-value"></span><span class="badge-direction" aria-hidden="true"></span></button><div class="mode-toggle" role="group" aria-label="Display mode" hidden><button type="button" data-mode="compact">Compact</button><button type="button" data-mode="detailed">Detailed</button></div></div><div class="flow">
         <svg class="flow-connectors" viewBox="0 0 360 320" preserveAspectRatio="none" aria-label="Power flow">${["pv", "grid", "battery", "load"].map(name => `<g class="line ${name}-line" role="img"><path class="track"/><path class="pulse"/><path class="arrow" d="M-4 -4 L3 0 L-4 4 Z"/></g>`).join("")}</svg>
@@ -508,15 +512,17 @@ class SolarBridgeCard extends HTMLElement {
     meter.querySelectorAll(".level-bar span").forEach(tick => tick.remove());
     meter.querySelector(".level-ticks").innerHTML = thresholds.map(item => {
       const angle = position(item.value) / 100 * Math.PI * 2 - Math.PI / 2;
-      return `<line x1="${56 + Math.cos(angle) * 46}" y1="${56 + Math.sin(angle) * 46}" x2="${56 + Math.cos(angle) * 56}" y2="${56 + Math.sin(angle) * 56}"/>`;
+      return `<line data-threshold="${item.name}" data-active="${item.active}" x1="${56 + Math.cos(angle) * 47}" y1="${56 + Math.sin(angle) * 47}" x2="${56 + Math.cos(angle) * 55}" y2="${56 + Math.sin(angle) * 55}"/>`;
     }).join("");
     for (const item of thresholds) {
       const tick = document.createElement("span");
+      tick.dataset.threshold = item.name;
+      tick.dataset.active = String(item.active);
       tick.style.left = `${position(item.value)}%`;
       meter.querySelector(".level-bar").append(tick);
     }
     // Labels live in flowing legend rows, never at the ticks' coordinates.
-    const legend = thresholds.map(item => `<span>│ ${item.label} ${item.value} ${unit}</span>`).join("")
+    const legend = thresholds.map(item => `<span data-threshold="${item.name}">${item.label} ${item.value} ${unit}</span>`).join("")
       + (voltage && configured && (value != null || thresholds.length) ? `<span class="scale">Voltage scale ${level.min}–${level.max} V</span>` : "");
     for (const element of root.querySelectorAll(".battery-meter .battery-thresholds, ha-card>.battery-thresholds")) {
       element.innerHTML = legend;
@@ -582,7 +588,7 @@ class SolarBridgeCard extends HTMLElement {
     }
     markers.innerHTML = thresholds.map(item => {
       const y = top + (max === min ? plotHeight / 2 : 2 + (1 - (item.value - min) / (max - min)) * (plotHeight - 4));
-      return `<line x1="${left + 2}" x2="${left + plotWidth - 2}" y1="${y}" y2="${y}"><title>${item.label} ${item.value} ${unit}</title></line>`;
+      return `<line data-threshold="${item.name}" data-active="${item.active}" x1="${left + 2}" x2="${left + plotWidth - 2}" y1="${y}" y2="${y}"><title>${item.label} ${item.value} ${unit}</title></line>`;
     }).join("");
     let legend = elements.trendBox.querySelector(".history-thresholds");
     if (!legend) {
@@ -590,7 +596,7 @@ class SolarBridgeCard extends HTMLElement {
       legend.className = "history-thresholds battery-thresholds";
       elements.trendBox.append(legend);
     }
-    legend.innerHTML = thresholds.map(item => `<span>┄ ${item.label} ${item.value} ${unit}</span>`).join("");
+    legend.innerHTML = thresholds.map(item => `<span data-threshold="${item.name}">${item.label} ${item.value} ${unit}</span>`).join("");
     const entityId = this.config[day ? this.batteryMetricKey : this.historyMetricKey];
     const selected = this._charts[name]?.entityId === entityId && samples.find(sample => sample.time === this._chartSelections[name]?.time && sample.value != null);
     this._charts[name] = { entityId, samples, start, now: end, width, left, top, plotWidth, plotHeight, min, max, unit, day, schedules };

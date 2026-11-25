@@ -21,6 +21,11 @@ const tests = {}, wait = () => new Promise(resolve=>setTimeout(resolve,75));
 const root = () => card.shadowRoot, $ = selector => root().querySelector(selector);
 const visible = element => element?.getBoundingClientRect().width > 0 && element?.getBoundingClientRect().height > 0;
 const rect = element => element.getBoundingClientRect();
+const emphasis = expected => ['.level-ticks line','.level-bar span','.chart-thresholds line'].every(selector => {
+  const ticks = [...root().querySelectorAll(selector)], opacity = tick => Number(getComputedStyle(tick).opacity);
+  const strongest = ticks.filter(tick => opacity(tick) > Math.min(...ticks.map(opacity)));
+  return strongest.length === (expected ? 1 : 0) && strongest.every(tick => tick.dataset.threshold === expected);
+});
 const update = async (settings={}, readings={}) => { states = {...states,...readings}; card.setConfig({...config,display_mode:'detailed',...settings}); card.hass=hass(); await wait(); };
 for (const flow_style of ['hub','minimal','horizontal']) for (const display_mode of ['auto','compact','detailed']) for (const mode of ['Capacity','Voltage']) {
   await update({flow_style,display_mode},{'sensor.mode':entity(mode)});
@@ -38,6 +43,7 @@ for (const [mode,metric,unit,cases] of [
 ]) for (const [value,state] of cases) {
   await update({}, {'sensor.mode':entity(mode), [`sensor.${metric}`]:entity(value,unit)});
   tests[`boundary-${metric}-${value}`] = $('.battery-state').textContent===state && $('.battery-badge').dataset.state===state && $('.battery-badge').title.includes(`${state} ·`);
+  tests[`threshold-emphasis-${metric}-${value}`] = emphasis(state==='Reserve' ? 'restart' : state==='Critical' ? 'low' : null);
 }
 await update({}, {'sensor.mode':entity('Capacity'),'sensor.soc':entity(74,'%')});
 tests.socFill = $('.level-fill').getAttribute('stroke-dasharray')==='74 100';
@@ -55,16 +61,16 @@ card.addEventListener('hass-more-info',event=>opened=event.detail.entityId);
 $('.battery-badge').click();
 tests.badgeMoreInfo = opened==='sensor.voltage' && $('.battery-badge').tabIndex===0;
 await update({}, {'sensor.voltage':entity('unavailable','V')});
-tests.noStaleUnavailable = $('.badge-value').textContent==='— V' && $('.battery-state').textContent==='' && $('.battery-badge').dataset.state==='' && $('.level-fill').hasAttribute('hidden') && $('.level-bar i').style.width==='0%' && $('.badge-direction').textContent==='';
+tests.noStaleUnavailable = $('.badge-value').textContent==='— V' && $('.battery-state').textContent==='' && $('.battery-badge').dataset.state==='' && $('.level-fill').hasAttribute('hidden') && $('.level-bar i').style.width==='0%' && $('.badge-direction').textContent==='' && emphasis(null);
 states['sensor.voltage']=entity(45,'V'); card.hass=hass(); await wait();
-tests.liveRecovery = $('.badge-value').textContent==='45.00 V' && $('.battery-state').textContent==='Critical';
+tests.liveRecovery = $('.badge-value').textContent==='45.00 V' && $('.battery-state').textContent==='Critical' && emphasis('low');
 await update({}, {'sensor.voltage':entity(51000,'mV')});
 tests.unitSafety = $('.badge-value').textContent==='— V' && $('.battery-state').textContent==='' && $('.trend-line').getAttribute('d')==='';
 const noThresholds = Object.fromEntries(Object.entries(config).filter(([key])=>!/^battery_(low|restart|shutdown)_/.test(key)));
 card.setConfig({...noThresholds,display_mode:'detailed'}); states['sensor.voltage']=entity(51.2,'V'); card.hass=hass(); await wait();
 tests.noInventedState = $('.battery-state').textContent==='' && $('.battery-badge').dataset.state==='' && $('.level-ticks').children.length===0 && $('.chart-thresholds').children.length===0;
 await update({}, {'sensor.restart_voltage':entity('unavailable','V')});
-tests.unavailableThresholdNeutral = $('.battery-state').textContent==='';
+tests.unavailableThresholdNeutral = $('.battery-state').textContent==='' && emphasis(null);
 await update({}, {'sensor.mode':entity('No battery')});
 tests.noBattery = $('.battery-badge').hidden && $('.node.battery').hidden;
 // Leave a stable, representative preview after the assertions.
