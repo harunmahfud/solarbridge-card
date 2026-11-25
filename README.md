@@ -42,7 +42,11 @@ groups start open and stack in two masonry columns without fixed-height rows.
 Use **Expand all** / **Collapse all**, or close individual groups to see short
 live summaries. At 480 px or narrower, two-column summary tiles show each
 group's key readings and reading count. Tap a tile to open its full readings
-below the tiles; tap it again to close them.
+directly below that tile's row, across both columns; following tiles move down.
+Tap it again to close, or choose another tile to move the panel to its row.
+An opened panel scrolls gently into view only if needed, with an immediate
+jump instead when reduced motion is enabled. Live updates and restored
+selections do not trigger scrolling.
 Desktop expansion choices and the selected phone tile are remembered separately
 in localStorage, shared by cards in this browser/device. They survive refreshes,
 mode switches and live updates without changing YAML. With browser storage
