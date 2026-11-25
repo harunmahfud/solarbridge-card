@@ -16,7 +16,7 @@ export function flowDuration(value) {
   return Math.max(0.45, Math.min(3, 1800 / Math.abs(value)));
 }
 
-export function sparklinePaths(samples, width = 280, height = 42, startTime, endTime) {
+export function sparklinePaths(samples, width = 280, height = 42, startTime, endTime, range) {
   const points = samples
     .map(sample => ({ value: sample.value == null || String(sample.value).trim() === "" ? null : Number(sample.value), time: Number(sample.time) }))
     .filter(sample => Number.isFinite(sample.time))
@@ -27,8 +27,8 @@ export function sparklinePaths(samples, width = 280, height = 42, startTime, end
   const minTime = Number.isFinite(startTime) ? startTime : points[0].time;
   const maxTime = Number.isFinite(endTime) ? endTime : points.at(-1).time;
   const timeSpan = maxTime - minTime || 1;
-  const minValue = Math.min(...values);
-  const valueSpan = Math.max(...values) - minValue;
+  const minValue = range?.[0] ?? Math.min(...values);
+  const valueSpan = (range?.[1] ?? Math.max(...values)) - minValue;
   const padding = 2;
   const plotWidth = width - padding * 2;
   const plotHeight = height - padding * 2;

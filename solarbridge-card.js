@@ -11,7 +11,7 @@ function formatPower(value) {
 function flowDuration(value) {
   return value ? Math.max(0.45, Math.min(3, 1800 / Math.abs(value))) : 0;
 }
-function sparklinePaths(samples, width = 280, height = 42, startTime, endTime) {
+function sparklinePaths(samples, width = 280, height = 42, startTime, endTime, range) {
   const points = samples.map(sample => ({ value: sample.value == null || String(sample.value).trim() === "" ? null : Number(sample.value), time: Number(sample.time) }))
     .filter(sample => Number.isFinite(sample.time)).sort((a, b) => a.time - b.time);
   const values = points.filter(point => point.value != null && Number.isFinite(point.value)).map(point => point.value);
@@ -19,8 +19,8 @@ function sparklinePaths(samples, width = 280, height = 42, startTime, endTime) {
   const minTime = Number.isFinite(startTime) ? startTime : points[0].time;
   const maxTime = Number.isFinite(endTime) ? endTime : points.at(-1).time;
   const timeSpan = maxTime - minTime || 1;
-  const minValue = Math.min(...values);
-  const valueSpan = Math.max(...values) - minValue;
+  const minValue = range?.[0] ?? Math.min(...values);
+  const valueSpan = (range?.[1] ?? Math.max(...values)) - minValue;
   const padding = 2, plotWidth = width - padding * 2, plotHeight = height - padding * 2;
   const coordinates = points.map(point => point.value == null || !Number.isFinite(point.value) ? null : ({
     x: padding + Math.max(0, Math.min(1, (point.time - minTime) / timeSpan)) * plotWidth,
@@ -92,20 +92,35 @@ const DETAIL_GROUPS = [
     ["total_solar", "Total production"], ["total_load", "Total load consumption"],
     ["total_grid_import", "Total energy bought"], ["total_grid_export", "Total energy sold"],
   ], ["total_solar", "total_load"]],
-  ...[1, 2, 3, 4, 5, 6].map(slot => [`Time of use ${slot}`, [
+];
+const TOU_GROUPS = [1, 2, 3, 4, 5, 6].map(slot => [`Schedule ${slot}`, [
     [`tou_time_${slot}`, "Start time"], [`tou_power_${slot}`, "Power target"],
     [`tou_voltage_${slot}`, "Voltage target"], [`tou_soc_${slot}`, "SOC target"],
     [`tou_${slot}_grid_charge`, "Grid charging"], [`tou_${slot}_generator_charge`, "Generator charging"],
-  ], [`tou_time_${slot}`, `tou_soc_${slot}`, `tou_voltage_${slot}`, `tou_power_${slot}`]]),
-];
+  ]]);
 const DETAIL_FIELDS = DETAIL_GROUPS.flatMap(([, fields]) => fields);
-const ENTITY_FIELDS = [...CORE_ENTITY_FIELDS, ...DETAIL_FIELDS];
+const ENTITY_FIELDS = [...CORE_ENTITY_FIELDS, ...DETAIL_FIELDS, ...TOU_GROUPS.flatMap(([, fields]) => fields)];
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"]/g, character => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"})[character]);
 
+// Resolve each wall time separately: a local calendar day can be 23 or 25 hours.
+function scheduleDay(now, timeZone) {
+  const format = new Intl.DateTimeFormat("en-GB", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  const parts = time => Object.fromEntries(format.formatToParts(time).filter(part => part.type !== "literal").map(part => [part.type, Number(part.value)]));
+  const wall = p => Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  const local = parts(now), midnight = Date.UTC(local.year, local.month - 1, local.day);
+  const at = minute => {
+    const target = midnight + minute * 60000;
+    let time = target;
+    for (let i = 0; i < 3; i++) time += target - wall(parts(time));
+    return time;
+  };
+  return { start: at(0), end: at(1440), minute: local.hour * 60 + local.minute + local.second / 60, at };
+}
+
 class SolarBridgeCard extends HTMLElement {
   setConfig(config) {
-    this.config = { title: "Solar power flow", display_mode: "auto", flow_style: "hub", show_mode_toggle: false, ...config, view_mode: config.view_mode === "system" ? "system" : "overview" };
+    this.config = { title: "Solar power flow", display_mode: "auto", flow_style: "hub", show_mode_toggle: false, show_tou_chart: false, ...config, view_mode: config.view_mode === "system" ? "system" : "overview" };
     this._runtimeMode = null;
     if (this.config.show_mode_toggle) {
       try {
@@ -138,7 +153,7 @@ class SolarBridgeCard extends HTMLElement {
       const entityId = this.config?.[key];
       const entity = hass?.states?.[entityId];
       return `${entityId || ""}:${entity?.state || ""}:${entity?.attributes?.unit_of_measurement || ""}:${entity?.attributes?.battery_mode || ""}`;
-    }).join("|");
+    }).join("|") + `:${hass?.config?.time_zone || ""}`;
     if (signature !== this._stateSignature) {
       this._stateSignature = signature;
       this.scheduleRender();
@@ -149,9 +164,11 @@ class SolarBridgeCard extends HTMLElement {
   connectedCallback() {
     this._intersecting = true;
     this._resizeObserver?.observe(this);
-    if (this._elements) this._resizeObserver?.observe(this._elements.trend);
+    for (const elements of Object.values(this._chartElements || {})) this._resizeObserver?.observe(elements.trend);
     this._historyOutsideHandler = event => {
-      if (!event.composedPath().includes(this._elements?.trend)) this.hideHistoryTooltip();
+      for (const [name, elements] of Object.entries(this._chartElements || {})) {
+        if (!event.composedPath().includes(elements.trend)) this.hideHistoryTooltip(name);
+      }
     };
     document.addEventListener("pointerdown", this._historyOutsideHandler);
     this._visibilityHandler = () => {
@@ -174,6 +191,8 @@ class SolarBridgeCard extends HTMLElement {
     document.removeEventListener("visibilitychange", this._visibilityHandler);
     document.removeEventListener("pointerdown", this._historyOutsideHandler);
     this.hideHistoryTooltip();
+    this.hideHistoryTooltip("tou");
+    clearTimeout(this._scheduleTimer);
     this._observer?.disconnect();
     this._resizeObserver?.disconnect();
     if (this._renderFrame) cancelAnimationFrame(this._renderFrame);
@@ -229,11 +248,13 @@ class SolarBridgeCard extends HTMLElement {
     }
     if (!entityId) return;
     const now = Date.now();
-    const key = `${entityId}:${Math.floor(now / (60 * 60 * 1000))}`;
+    const rollingStart = now - 24 * 60 * 60 * 1000;
+    const dayStart = this.config.show_tou_chart ? scheduleDay(now, this._hass.config?.time_zone).start : now;
+    const key = `${entityId}:${Math.floor(now / (60 * 60 * 1000))}:${dayStart < rollingStart ? dayStart : ""}`;
     if (key === this._historyKey) return;
     this._historyKey = key;
     try {
-      const start = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+      const start = new Date(Math.min(rollingStart, dayStart)).toISOString();
       const end = new Date(now).toISOString();
       const history = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${encodeURIComponent(entityId)}&end_time=${encodeURIComponent(end)}&minimal_response`);
       if (this._historyKey !== key || this.config[this.historyMetricKey] !== entityId) return;
@@ -247,7 +268,10 @@ class SolarBridgeCard extends HTMLElement {
     }
   }
 
-  value(key) { return numericState(this._hass, this.config[key]); }
+  value(key, unit) {
+    const reported = this._hass?.states?.[this.config[key]]?.attributes?.unit_of_measurement;
+    return unit && reported && reported !== unit ? null : numericState(this._hass, this.config[key]);
+  }
   energy(key) {
     const value = numericState(this._hass, this.config[key]);
     return value == null ? "—" : `${value.toFixed(1)} kWh`;
@@ -297,6 +321,9 @@ class SolarBridgeCard extends HTMLElement {
       @container(max-width:480px){.details-actions{display:none}.detail-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.detail-groups{columns:auto;grid-column:1/-1;min-width:0;scroll-margin:8px}.details .detail-panel-title{display:block;margin:0;padding:10px 12px;border:1px solid var(--sb-accent);border-bottom:0;border-radius:8px 8px 0 0}.metric-group{display:none;margin:0;border-color:var(--sb-accent);border-top:0;border-radius:0 0 8px 8px;padding:0 12px 10px}.metric-group.selected{display:block}.metric-group summary{display:none}.metric-group dl{margin:0}.detail-hint{display:block;color:var(--sb-muted);font-size:12px;margin:10px 0 0}}
       @container(max-width:480px){ha-card{padding:12px}.summary,[data-style=minimal] .flow{grid-template-columns:repeat(2,minmax(0,1fr))}.header{flex-wrap:wrap}.flow{max-width:360px}[data-style=hub] .flow{aspect-ratio:360/350}[data-style=hub] .node{width:72px;height:72px}[data-style=hub] .node.inverter{width:78px;height:78px}[data-style=hub] .node.battery{width:92px;height:80px}.inverter .icon,.inverter .icon svg{height:16px;width:16px}.inverter .flow-state{font-size:10px}.metric-row{padding:5px 0}.summary b{font-size:17px}}
       @container(max-width:320px){[data-style=hub] .flow{aspect-ratio:360/400}.node strong{font-size:13px}[data-style=hub] .node.battery{width:88px;height:80px}.flow-state{font-size:11px}[data-style=horizontal] .node,[data-style=horizontal] .lane-hub{padding:5px}[data-style=horizontal] .flow-state{font-size:10px}.summary b{font-size:15px}}
+      .tou{margin-top:18px}.tou h3,.tou h4{font-size:13px;font-weight:600;margin:0 0 8px}.tou h3{color:var(--sb-muted)}.tou-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.tou-card{border:1px solid var(--sb-border);border-radius:10px;padding:12px;min-width:0}.tou-card.current{border-color:var(--sb-accent)}.tou-card small,.tou-card p{color:var(--sb-muted);font-size:12px}.tou-card strong{display:block;font-size:24px;line-height:1.3;margin:4px 0}.tou-card p{margin:4px 0 8px}.tou-card>div{font-size:13px}.tou-badge{display:inline-block;font-size:11px;border-radius:4px;padding:2px 5px;color:var(--sb-muted);background:var(--sb-border);margin:2px 0}.tou-badge.on{color:var(--sb-grid);background:color-mix(in srgb,var(--sb-grid) 12%,transparent)}.tou-all{border:1px solid var(--sb-border);border-radius:8px;margin-top:8px;padding:0 10px}.tou-all summary{cursor:pointer;font-weight:600;font-size:13px;min-height:44px;align-content:center}.tou table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px}.tou th,.tou td{padding:7px 5px;text-align:left;border-bottom:1px solid var(--sb-border);overflow-wrap:anywhere}.tou thead th{font-weight:500;color:var(--sb-muted)}.tou tbody th{font-weight:500}.tou tr.current{background:color-mix(in srgb,var(--sb-accent) 12%,transparent)}.tou-chart{margin-top:16px}.tou-legend{display:flex;gap:16px;font-size:11px;color:var(--sb-muted);margin-bottom:6px}.tou-legend span:first-child{color:var(--sb-accent)}.tou-legend span:last-child{color:var(--sb-battery)}.trend-line.tou-target{stroke:var(--sb-accent);stroke-dasharray:5 4}.tou-now{pointer-events:none}.tou-now line{stroke:var(--sb-muted);stroke-dasharray:2 3}.tou-now text{fill:var(--sb-muted);font:11px system-ui}
+      @container(max-width:480px){.tou-cards{grid-template-columns:1fr}.tou .tou-power{display:none}.tou-all{padding:0 6px}.tou th,.tou td{padding:6px 3px}.tou th:first-child{width:21%}.tou td.tou-time{width:29%}.tou-badge{font-size:10px;padding:2px 4px}}
+      .tou td button{display:block;width:100%;min-height:32px;border:0;padding:0;background:transparent;color:inherit;text-align:inherit;font:inherit;cursor:pointer}.tou td button:disabled{cursor:default}
     </style><ha-card>
       <div class="header"><h2></h2><div class="mode-toggle" role="group" aria-label="Display mode" hidden><button type="button" data-mode="compact">Compact</button><button type="button" data-mode="detailed">Detailed</button></div></div><div class="flow">
         <svg class="flow-connectors" viewBox="0 0 360 320" preserveAspectRatio="none" aria-label="Power flow">${["pv", "grid", "battery", "load"].map(name => `<g class="line ${name}-line" role="img"><path class="track"/><path class="pulse"/><path class="arrow" d="M-4 -4 L3 0 L-4 4 Z"/></g>`).join("")}</svg>
@@ -312,6 +339,11 @@ class SolarBridgeCard extends HTMLElement {
       <div class="battery-indicator" hidden></div>
       <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div class="entity-item" data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
       <div class="soc entity-item" data-key="battery_soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" tabindex="0" role="img" aria-describedby="history-tooltip" aria-label="24 hour battery SOC trend"><g class="chart-axes"></g><path class="trend-area"/><path class="trend-line"/><text class="chart-empty" x="50%" y="50%" text-anchor="middle" hidden>No history available</text><circle class="chart-point" r="4" hidden aria-hidden="true"/></svg><div class="chart-tooltip" id="history-tooltip" role="tooltip" aria-live="polite" hidden><b></b><span></span></div></div></div>
+      <section class="tou" aria-label="Time of use" hidden>
+        <h3>Time of use</h3><div class="tou-cards"></div>
+        <details class="tou-all"><summary>All schedules</summary><table><thead><tr><th scope="col">Schedule</th><th scope="col">Time</th><th scope="col" class="tou-power">Power</th><th scope="col" class="tou-target-label">Target</th><th scope="col">Charging</th></tr></thead><tbody></tbody></table></details>
+        <div class="tou-chart trendbox" hidden><h4>Target over the day</h4><div class="tou-legend"><span>Dashed: target</span><span>Solid: actual</span></div><svg class="trend" role="img" tabindex="0" aria-describedby="tou-tooltip"><g class="chart-axes"></g><path class="trend-area"/><path class="trend-line tou-target"/><path class="trend-line"/><g class="tou-now"></g><text class="chart-empty" x="50%" y="50%" text-anchor="middle" hidden>No target or history available</text><circle class="chart-point" r="4" hidden aria-hidden="true"/></svg><div class="chart-tooltip" id="tou-tooltip" role="tooltip" aria-live="polite" hidden><b></b><span></span></div></div>
+      </section>
       <section class="details" aria-label="System details" hidden>
         <div class="details-toolbar"><h3>Technical details</h3><div class="details-actions"><button type="button" data-expand="true">Expand all</button><button type="button" data-expand="false">Collapse all</button></div></div>
         <div class="detail-tiles">${DETAIL_GROUPS.map(([group]) => `<button type="button" class="detail-tile" data-group="${escapeHtml(group)}" aria-expanded="false" aria-controls="technical-readings" hidden><span class="tile-name">${escapeHtml(group)}</span><span class="tile-value"><small></small><b></b></span><span class="tile-value"><small></small><b></b></span><span class="tile-count"></span></button>`).join("")}</div>
@@ -416,37 +448,43 @@ class SolarBridgeCard extends HTMLElement {
     this.updateFlow(this._elements.lines[3], "Load flow", load);
     this.updateDetails(text);
     this.updateHistoryChart(historyValue);
+    this.updateTou();
     this._renderedWidth = this.clientWidth;
     this.syncAnimationPlayback();
   }
 
-  updateHistoryChart(current) {
-    const now = Date.now(), start = now - 24 * 3600000;
-    const samples = [...(this._batteryHistory || []), { value: current, time: now }].sort((a, b) => a.time - b.time);
+  updateHistoryChart(current, name = "history", day, schedules = []) {
+    const elements = this._chartElements[name];
+    const now = Date.now(), end = day?.end ?? now, start = day?.start ?? end - 24 * 3600000;
+    const unit = (day ? this.batteryMetricKey : this.historyMetricKey) === "battery_voltage" ? "V" : "%";
+    const reported = this._hass.states[this.config[this.batteryMetricKey]]?.attributes?.unit_of_measurement;
+    const actual = name === "history" || (this.historyMetricKey === this.batteryMetricKey && (!reported || reported === unit));
+    const history = [...(this._batteryHistory || [])].filter(sample => sample.time <= now).sort((a, b) => a.time - b.time);
+    const before = history.findLast(sample => sample.time < start);
+    const samples = actual ? [...(before ? [{ ...before, time: start }] : []), ...history.filter(sample => sample.time >= start), { value: current, time: now }] : [];
     const detailed = this.detailed;
     // Measure after visibility/layout changes. A fixed 280×42 viewBox makes
     // SVG's default aspect-ratio scaling letterbox (or shrink) the Auto trace.
-    const width = this._elements.trend.getBoundingClientRect().width;
+    const width = elements.trend.getBoundingClientRect().width;
     if (!width) {
-      this._historyChart = null;
-      this.hideHistoryTooltip();
+      this._charts[name] = null;
+      this.hideHistoryTooltip(name);
       return;
     }
     const height = detailed ? (this.clientWidth <= 480 ? 200 : 210) : 42;
     const left = detailed ? 48 : 0, top = detailed ? 12 : 0;
     const plotWidth = width - left - (detailed ? 12 : 0), plotHeight = height - top - (detailed ? 44 : 0);
-    const trend = sparklinePaths(samples, plotWidth, plotHeight, start, now);
-    this._elements.trend.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    this._elements.trend.style.aspectRatio = `${width}/${height}`;
-    for (const path of [this._elements.trendLine, this._elements.trendArea]) path.setAttribute("transform", `translate(${left} ${top})`);
-    this._elements.trendLine.setAttribute("d", trend.line);
-    this._elements.trendArea.setAttribute("d", trend.area);
-    this.shadowRoot.querySelector(".chart-empty").toggleAttribute("hidden", samples.some(sample => sample.value != null && Number.isFinite(sample.value) && sample.time < now));
-    const values = samples.filter(sample => sample.value != null && Number.isFinite(sample.value)).map(sample => sample.value);
+    const values = [...samples, ...schedules].filter(sample => sample.value != null && Number.isFinite(sample.value)).map(sample => sample.value);
     const min = Math.min(...values), max = Math.max(...values);
-    const unit = this.historyMetricKey === "battery_voltage" ? "V" : "%";
-    const axes = this.shadowRoot.querySelector(".chart-axes");
-    const time = timestamp => new Date(timestamp).toLocaleTimeString(this._hass.locale?.language, { hour: "2-digit", minute: "2-digit" });
+    const trend = sparklinePaths(samples, plotWidth, plotHeight, start, end, [min, max]);
+    elements.trend.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    elements.trend.style.aspectRatio = `${width}/${height}`;
+    for (const path of [elements.trendLine, elements.trendArea]) path.setAttribute("transform", `translate(${left} ${top})`);
+    elements.trendLine.setAttribute("d", trend.line);
+    elements.trendArea.setAttribute("d", name === "history" ? trend.area : "");
+    elements.trend.querySelector(".chart-empty").toggleAttribute("hidden", samples.some(sample => sample.value != null && sample.time < Date.now()) || schedules.some(sample => sample.value != null));
+    const axes = elements.trend.querySelector(".chart-axes");
+    const time = timestamp => new Date(timestamp).toLocaleTimeString(this._hass.locale?.language, { ...(day ? { timeZone: this._hass.config?.time_zone } : {}), hour: "2-digit", minute: "2-digit" });
     const date = timestamp => new Date(timestamp).toLocaleDateString(this._hass.locale?.language, { month: "short", day: "numeric" });
     const ticks = this.clientWidth <= 480 ? [0, .5, 1] : [0, .25, .5, .75, 1];
     axes.innerHTML = detailed ? [0, .5, 1].map(fraction => {
@@ -454,50 +492,64 @@ class SolarBridgeCard extends HTMLElement {
       const value = min + (max - min) * fraction;
       return `<line x1="${left}" x2="${width - 12}" y1="${y}" y2="${y}"/><text x="${left - 7}" y="${y + 4}" text-anchor="end">${Number.isFinite(value) ? value.toFixed(1) : "—"} ${unit}</text>`;
     }).join("") + ticks.map(fraction => {
-      const x = left + 2 + fraction * (plotWidth - 4), timestamp = start + fraction * (now - start);
-      return `<text x="${x}" y="${height - 22}" text-anchor="${fraction === 0 ? "start" : fraction === 1 ? "end" : "middle"}">${escapeHtml(time(timestamp))}${fraction === 0 || fraction === 1 ? `<tspan x="${x}" dy="14">${escapeHtml(date(timestamp))}</tspan>` : ""}</text>`;
+      const x = left + 2 + fraction * (plotWidth - 4), timestamp = start + fraction * (end - start);
+      return `<text x="${x}" y="${height - 22}" text-anchor="${fraction === 0 ? "start" : fraction === 1 ? "end" : "middle"}">${day && fraction === 1 ? "24:00" : escapeHtml(time(timestamp))}${!day && (fraction === 0 || fraction === 1) ? `<tspan x="${x}" dy="14">${escapeHtml(date(timestamp))}</tspan>` : ""}</text>`;
     }).join("") : "";
-    const entityId = this.config[this.historyMetricKey];
-    const selected = this._historyChart?.entityId === entityId && samples.find(sample => sample.time === this._historySelection?.time && sample.value != null);
-    this._historyChart = { entityId, samples, start, now, width, left, top, plotWidth, plotHeight, min, max, unit };
-    if (selected) this.showHistorySample(selected);
-    else this.hideHistoryTooltip();
+    const entityId = this.config[day ? this.batteryMetricKey : this.historyMetricKey];
+    const selected = this._charts[name]?.entityId === entityId && samples.find(sample => sample.time === this._chartSelections[name]?.time && sample.value != null);
+    this._charts[name] = { entityId, samples, start, now: end, width, left, top, plotWidth, plotHeight, min, max, unit, day, schedules };
+    if (day) {
+      const x = time => left + 2 + (time - start) / (end - start) * (plotWidth - 4);
+      const y = value => top + (max === min ? plotHeight / 2 : 2 + (1 - (value - min) / (max - min)) * (plotHeight - 4));
+      let path = "", connected = false;
+      for (const [index, sample] of schedules.entries()) {
+        if (sample.value == null) { connected = false; continue; }
+        path += `${connected ? " L" : " M"} ${x(sample.time).toFixed(1)} ${y(sample.value).toFixed(1)} H ${x(schedules[index + 1]?.time ?? end).toFixed(1)}`;
+        connected = true;
+      }
+      elements.trend.querySelector(".tou-target").setAttribute("d", path);
+      const nowX = x(Date.now());
+      elements.trend.querySelector(".tou-now").innerHTML = `<line x1="${nowX}" x2="${nowX}" y1="${top}" y2="${top + plotHeight}"/><text x="${nowX}" y="${height - 8}" text-anchor="middle">Now</text>`;
+    }
+    if (selected) this.showHistorySample(selected, name);
+    else this.hideHistoryTooltip(name);
   }
 
-  hideHistoryTooltip() {
-    this._historySelection = null;
-    if (!this._elements) return;
-    this._elements.chartPoint.toggleAttribute("hidden", true);
-    this._elements.chartTooltip.hidden = true;
+  hideHistoryTooltip(name = "history") {
+    if (!this._chartElements) return;
+    this._chartSelections[name] = null;
+    this._chartElements[name].chartPoint.toggleAttribute("hidden", true);
+    this._chartElements[name].chartTooltip.hidden = true;
   }
 
-  inspectHistory(event) {
-    const chart = this._historyChart;
+  inspectHistory(event, name = "history") {
+    const chart = this._charts[name];
     if (!chart) return;
-    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(this._elements.trend.getScreenCTM().inverse());
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(this._chartElements[name].trend.getScreenCTM().inverse());
     const fraction = (point.x - chart.left - 2) / (chart.plotWidth - 4);
-    if (fraction < 0 || fraction > 1 || point.y < chart.top || point.y > chart.top + chart.plotHeight) return this.hideHistoryTooltip();
+    if (fraction < 0 || fraction > 1 || point.y < chart.top || point.y > chart.top + chart.plotHeight) return this.hideHistoryTooltip(name);
     const timestamp = chart.start + fraction * (chart.now - chart.start);
     const index = chart.samples.findIndex(sample => sample.time >= timestamp);
     const next = chart.samples[index];
     const previous = next?.time === timestamp ? next : chart.samples[index - 1];
     // Only inspect a drawn segment, never snap across unavailable history.
-    if (previous?.value == null || next?.value == null) return this.hideHistoryTooltip();
-    this.showHistorySample(timestamp - previous.time < next.time - timestamp ? previous : next);
+    if (previous?.value == null || next?.value == null) return this.hideHistoryTooltip(name);
+    this.showHistorySample(timestamp - previous.time < next.time - timestamp ? previous : next, name);
   }
 
-  showHistorySample(sample) {
-    const chart = this._historyChart;
+  showHistorySample(sample, name = "history") {
+    const chart = this._charts[name];
     const x = chart.left + 2 + Math.max(0, Math.min(1, (sample.time - chart.start) / (chart.now - chart.start))) * (chart.plotWidth - 4);
     const y = chart.top + (chart.max === chart.min ? chart.plotHeight / 2 : 2 + (1 - (sample.value - chart.min) / (chart.max - chart.min)) * (chart.plotHeight - 4));
-    this._historySelection = sample;
-    const { chartPoint, chartTooltip, trend, trendBox } = this._elements;
+    this._chartSelections[name] = sample;
+    const { chartPoint, chartTooltip, trend, trendBox } = this._chartElements[name];
     // Paths round their coordinates to tenths of a pixel too.
     chartPoint.setAttribute("cx", x.toFixed(1));
     chartPoint.setAttribute("cy", y.toFixed(1));
     chartPoint.toggleAttribute("hidden", false);
     chartTooltip.querySelector("b").textContent = `${sample.value.toFixed(2)} ${chart.unit}`;
-    chartTooltip.querySelector("span").textContent = new Date(sample.time).toLocaleString(this._hass.locale?.language, { ...(this.detailed ? { month: "short", day: "numeric" } : {}), hour: "2-digit", minute: "2-digit" });
+    const target = chart.schedules.findLast(target => target.time <= sample.time)?.value;
+    chartTooltip.querySelector("span").textContent = new Date(sample.time).toLocaleString(this._hass.locale?.language, { ...(chart.day ? { timeZone: this._hass.config?.time_zone } : {}), ...(this.detailed ? { month: "short", day: "numeric" } : {}), hour: "2-digit", minute: "2-digit" }) + (chart.day ? ` · Target ${target == null ? "—" : `${target} ${chart.unit}`}` : "");
     chartTooltip.hidden = false;
     const matrix = trend.getScreenCTM();
     const screen = new DOMPoint(x, y).matrixTransform(matrix);
@@ -508,6 +560,71 @@ class SolarBridgeCard extends HTMLElement {
     const labelX = beside + chartTooltip.offsetWidth <= box.width ? beside : screen.x - box.left - chartTooltip.offsetWidth - 10;
     chartTooltip.style.left = `${Math.max(0, Math.min(box.width - chartTooltip.offsetWidth, labelX))}px`;
     chartTooltip.style.top = `${Math.max(plotTop - box.top, Math.min(plotBottom - box.top - chartTooltip.offsetHeight, screen.y - box.top - chartTooltip.offsetHeight / 2))}px`;
+  }
+
+  updateTou() {
+    const section = this.shadowRoot.querySelector(".tou");
+    const schedules = TOU_GROUPS.flatMap(([label, fields], index) => {
+      if (!fields.some(([key]) => this.config[key])) return [];
+      const id = index + 1, time = this._hass.states[this.config[`tou_time_${id}`]]?.state;
+      const parts = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(time || "");
+      const minute = parts && +parts[1] < 24 && +parts[2] < 60 && +(parts[3] || 0) < 60 ? +parts[1] * 60 + +parts[2] + +(parts[3] || 0) / 60 : null;
+      const voltage = this.batteryMetricKey === "battery_voltage", metric = voltage ? "voltage" : "soc";
+      const value = this.batteryMetricKey ? this.value(`tou_${metric}_${id}`, voltage ? "V" : "%") : null;
+      const target = value == null ? "—" : `${value} ${voltage ? "V" : "%"}`;
+      const power = formatPower(this.value(`tou_power_${id}`, "W"));
+      const badges = ["grid", "generator"].filter(source => this.config[`tou_${id}_${source}_charge`]).map(source => {
+        const state = this._hass.states[this.config[`tou_${id}_${source}_charge`]]?.state?.toLowerCase();
+        const on = ["on", "enabled", "true", "1"].includes(state), off = ["off", "disabled", "false", "0"].includes(state);
+        return `<span class="tou-badge ${on ? "on" : ""}">${source === "grid" ? "Grid" : "Generator"} ${on ? "on" : off ? "off" : "—"}</span>`;
+      }).join(" ") || "—";
+      return [{ id, label, minute, time: minute == null ? "—" : time.slice(0, parts[3] && +parts[3] ? 8 : 5), value, target, power, badges, targetKey: `tou_${metric}_${id}` }];
+    }).sort((a, b) => (a.minute ?? Infinity) - (b.minute ?? Infinity));
+    section.hidden = !this.detailed || !schedules.length;
+    clearTimeout(this._scheduleTimer);
+    if (section.hidden) { this._charts.tou = null; this.hideHistoryTooltip("tou"); return; }
+    const now = Date.now(), day = scheduleDay(now, this._hass.config?.time_zone);
+    const valid = schedules.every(schedule => schedule.minute != null) && new Set(schedules.map(schedule => schedule.minute)).size === schedules.length;
+    const current = valid ? schedules.findLast(schedule => schedule.minute <= day.minute) || schedules.at(-1) : null;
+    const next = current ? schedules[(schedules.indexOf(current) + 1) % schedules.length] : null;
+    const nextTime = next ? day.at(next.minute + (next.minute <= day.minute ? 1440 : 0)) : null;
+    const until = next ? `${next.time}${next.minute <= day.minute ? " tomorrow" : ""}` : "—";
+    const minutes = next ? Math.max(0, Math.ceil((nextTime - now) / 60000)) : 0;
+    const cards = [["Now", current, `Until ${until}`], ["Next", next, next ? `Starts in ${Math.floor(minutes / 60)} h ${minutes % 60} min` : "Schedule times unavailable or duplicated"]];
+    section.querySelector(".tou-cards").innerHTML = cards.map(([label, schedule, subtitle]) => `<article class="tou-card ${label === "Now" ? "current" : ""}"><small>${label}${schedule ? ` · ${schedule.label}` : ""}</small><strong>${schedule?.target ?? "—"}</strong><p>${schedule ? `${schedule.time}–${schedules[(schedules.indexOf(schedule) + 1) % schedules.length].time}` : "—"} · ${subtitle}</p><div>${schedule?.power ?? "—"} · ${schedule?.badges ?? "—"}</div></article>`).join("");
+    const tbody = section.querySelector("tbody");
+    // Retain rows and the native disclosure across clock and hass updates.
+    for (const schedule of schedules) {
+      let row = tbody.querySelector(`[data-schedule="${schedule.id}"]`);
+      if (!row) {
+        row = document.createElement("tr");
+        row.dataset.schedule = schedule.id;
+        row.innerHTML = '<th scope="row"></th><td class="tou-time"><button type="button" class="entity-item"></button></td><td class="tou-power"><button type="button" class="entity-item"></button></td><td class="tou-value"><button type="button" class="entity-item"></button></td><td class="tou-charging"></td>';
+      }
+      row.classList.toggle("current", schedule === current);
+      if (schedule === current) row.setAttribute("aria-current", "time"); else row.removeAttribute("aria-current");
+      row.querySelector("th").textContent = `${schedule.label}${schedule === current ? " · now" : ""}`;
+      const end = valid ? schedules[(schedules.indexOf(schedule) + 1) % schedules.length] : null;
+      for (const [selector, key, text] of [[".tou-time", `tou_time_${schedule.id}`, schedule.minute == null ? "—" : `${schedule.time}–${end?.time ?? "—"}`], [".tou-power", `tou_power_${schedule.id}`, schedule.power], [".tou-value", schedule.targetKey, schedule.target]]) {
+        const cell = row.querySelector(`${selector} button`);
+        cell.textContent = text;
+        cell.dataset.key = key;
+        cell.disabled = !this.config[key];
+      }
+      row.querySelector(".tou-charging").innerHTML = schedule.badges;
+      const position = schedules.indexOf(schedule);
+      if (tbody.children[position] !== row) tbody.insertBefore(row, tbody.children[position] || null);
+    }
+    for (const row of [...tbody.children]) if (!schedules.some(schedule => schedule.id === +row.dataset.schedule)) row.remove();
+    const voltage = this.batteryMetricKey === "battery_voltage";
+    section.querySelector(".tou-target-label").textContent = this.batteryMetricKey ? voltage ? "Target V" : "Target %" : "Target";
+    section.querySelector(".tou-chart").hidden = !this.config.show_tou_chart || !this.batteryMetricKey;
+    const chart = this._chartElements.tou.trend;
+    chart.setAttribute("aria-label", `Today's ${voltage ? "voltage" : "SOC"} target and actual history`);
+    const targets = valid ? [{ time: day.start, value: schedules.at(-1).value }, ...schedules.map(schedule => ({ time: day.at(schedule.minute), value: schedule.value }))] : [];
+    this.updateHistoryChart(this.value(this.batteryMetricKey), "tou", day, targets);
+    // Refresh even when HA publishes no entity changes, including at midnight.
+    if (this.isConnected) this._scheduleTimer = setTimeout(() => this.scheduleRender(), Math.min(60000 - now % 60000, nextTime > now ? nextTime - now : 60000) + 1);
   }
 
   flowState(value, positive, negative, idle = "Idle") {
@@ -525,10 +642,8 @@ class SolarBridgeCard extends HTMLElement {
       for (const { key, label, row, output } of group.rows) {
         const entityId = this.config[key];
         const threshold = key.match(/^battery_(shutdown|restart|low)_(voltage|soc)$/);
-        const touTarget = key.match(/^tou_(voltage|soc)_\d+$/);
         const inactive = (group.name === "Battery management system" && (mode !== "Capacity" || this.displayMode !== "auto"))
-          || (threshold && threshold[2] !== thresholdUnit)
-          || (touTarget && touTarget[1] !== thresholdUnit);
+          || (threshold && threshold[2] !== thresholdUnit);
         row.hidden = !entityId || inactive;
         if (row.hidden) continue;
         visible += 1;
@@ -662,30 +777,40 @@ class SolarBridgeCard extends HTMLElement {
       if (event.type === "keydown" && event.key !== "Enter" && event.key !== " ") return;
       const item = event.target.closest?.(".entity-item");
       if (!item || item.hidden) return;
+      if (event.type === "keydown" && item.matches("button")) return;
       if (event.type === "keydown") event.preventDefault();
       const entityId = this.entityId(item.dataset.key, item.dataset.fallbackKey);
       if (entityId) this.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
     };
     this.shadowRoot.addEventListener("click", openDetails);
     this.shadowRoot.addEventListener("keydown", openDetails);
-    const trend = this._elements.trend;
-    for (const type of ["pointermove", "pointerdown"]) trend.addEventListener(type, event => this.inspectHistory(event));
-    trend.addEventListener("pointerleave", event => { if (event.pointerType !== "touch") this.hideHistoryTooltip(); });
-    for (const type of ["pointercancel", "blur"]) trend.addEventListener(type, () => this.hideHistoryTooltip());
-    trend.addEventListener("focus", () => {
-      if (!trend.matches(":focus-visible") || this._historySelection) return;
-      const sample = this._historyChart?.samples.findLast(sample => sample.value != null);
-      if (sample) this.showHistorySample(sample);
-    });
-    trend.addEventListener("keydown", event => {
-      if (event.key === "Escape") return this.hideHistoryTooltip();
-      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-      event.preventDefault();
-      const samples = this._historyChart?.samples.filter(sample => sample.value != null) || [];
-      const index = samples.indexOf(this._historySelection);
-      const next = event.key === "Home" ? 0 : event.key === "End" ? samples.length - 1 : index + (event.key === "ArrowLeft" ? -1 : 1);
-      if (samples.length) this.showHistorySample(samples[Math.max(0, Math.min(samples.length - 1, next))]);
-    });
+    this._charts = {};
+    this._chartSelections = {};
+    const tou = select(".tou-chart");
+    this._chartElements = { history: this._elements, tou: {
+      trend: tou.querySelector(".trend"), trendBox: tou,
+      trendLine: tou.querySelector(".trend-line:not(.tou-target)"), trendArea: tou.querySelector(".trend-area"),
+      chartPoint: tou.querySelector(".chart-point"), chartTooltip: tou.querySelector(".chart-tooltip"),
+    } };
+    for (const [name, { trend }] of Object.entries(this._chartElements)) {
+      for (const type of ["pointermove", "pointerdown"]) trend.addEventListener(type, event => this.inspectHistory(event, name));
+      trend.addEventListener("pointerleave", event => { if (event.pointerType !== "touch") this.hideHistoryTooltip(name); });
+      for (const type of ["pointercancel", "blur"]) trend.addEventListener(type, () => this.hideHistoryTooltip(name));
+      trend.addEventListener("focus", () => {
+        if (!trend.matches(":focus-visible") || this._chartSelections[name]) return;
+        const sample = this._charts[name]?.samples.findLast(sample => sample.value != null);
+        if (sample) this.showHistorySample(sample, name);
+      });
+      trend.addEventListener("keydown", event => {
+        if (event.key === "Escape") return this.hideHistoryTooltip(name);
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const samples = this._charts[name]?.samples.filter(sample => sample.value != null) || [];
+        const index = samples.indexOf(this._chartSelections[name]);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? samples.length - 1 : index + (event.key === "ArrowLeft" ? -1 : 1);
+        if (samples.length) this.showHistorySample(samples[Math.max(0, Math.min(samples.length - 1, next))], name);
+      });
+    }
     this._elements.toggle.addEventListener("click", event => {
       const mode = event.target.closest("button")?.dataset.mode;
       if (!mode) return;
@@ -697,10 +822,10 @@ class SolarBridgeCard extends HTMLElement {
       this._resizeObserver = new ResizeObserver(() => {
         // A render can itself resize/show the SVG. Late notifications for
         // geometry we already drew must not cause another full card render.
-        if (this.clientWidth !== this._renderedWidth || trend.getBoundingClientRect().width !== (this._historyChart?.width || 0)) this.scheduleRender();
+        if (this.clientWidth !== this._renderedWidth || Object.entries(this._chartElements).some(([name, { trend }]) => trend.getBoundingClientRect().width !== (this._charts[name]?.width || 0))) this.scheduleRender();
       });
       this._resizeObserver.observe(this);
-      this._resizeObserver.observe(trend);
+      for (const { trend } of Object.values(this._chartElements)) this._resizeObserver.observe(trend);
     }
   }
 
@@ -759,7 +884,8 @@ class SolarBridgeCardEditor extends HTMLElement {
         view_mode: this.config?.view_mode === "system" ? "system" : "overview",
         display_mode: this.config?.display_mode ?? "auto",
         flow_style: this.config?.flow_style ?? "hub",
-        show_mode_toggle: this.config?.show_mode_toggle ?? false };
+        show_mode_toggle: this.config?.show_mode_toggle ?? false,
+        show_tou_chart: this.config?.show_tou_chart ?? false };
       this.querySelectorAll("ha-textfield,ha-entity-picker,select").forEach(field => {
         const value = String(values[field.dataset.key] ?? "");
         if (field.value !== value) field.value = value;
@@ -768,12 +894,13 @@ class SolarBridgeCardEditor extends HTMLElement {
     }
     const picker = ([key,label], optional = false) => `<ha-entity-picker label="${label}${optional ? " (optional)" : ""}" data-key="${key}" value="${escapeHtml(this.config?.[key] || "")}" include-domains='["sensor"]' allow-custom-entity></ha-entity-picker>`;
     const mode = this.config?.view_mode === "system" ? "system" : "overview";
-    this.innerHTML = `<style>.editor{display:grid;gap:12px;padding:8px}label{display:grid;gap:5px;font-weight:600}select{box-sizing:border-box;width:100%;padding:10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)}ha-textfield,ha-entity-picker{width:100%}details{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:8px}summary{cursor:pointer;font-weight:600}.fields{display:grid;gap:10px;margin-top:10px}</style><div class="editor"><label>Presentation mode<select data-key="view_mode"><option value="overview"${mode === "overview" ? " selected" : ""}>Overview</option><option value="system"${mode === "system" ? " selected" : ""}>System detail</option></select></label><ha-textfield label="Title" value="${escapeHtml(this.config?.title || "Solar power flow")}" data-key="title"></ha-textfield>${CORE_ENTITY_FIELDS.map(field => picker(field, field[0].startsWith("daily_"))).join("")}${DETAIL_GROUPS.map(([group,fields]) => `<details><summary>${group} details</summary><div class="fields">${fields.map(field => picker(field, true)).join("")}</div></details>`).join("")}</div>`;
+    this.innerHTML = `<style>.editor{display:grid;gap:12px;padding:8px}label{display:grid;gap:5px;font-weight:600}select{box-sizing:border-box;width:100%;padding:10px;border:1px solid var(--divider-color,#ccc);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)}ha-textfield,ha-entity-picker{width:100%}details{border:1px solid var(--divider-color,#ddd);border-radius:8px;padding:8px}summary{cursor:pointer;font-weight:600}.fields{display:grid;gap:10px;margin-top:10px}</style><div class="editor"><label>Presentation mode<select data-key="view_mode"><option value="overview"${mode === "overview" ? " selected" : ""}>Overview</option><option value="system"${mode === "system" ? " selected" : ""}>System detail</option></select></label><ha-textfield label="Title" value="${escapeHtml(this.config?.title || "Solar power flow")}" data-key="title"></ha-textfield>${CORE_ENTITY_FIELDS.map(field => picker(field, field[0].startsWith("daily_"))).join("")}${[...DETAIL_GROUPS, ...TOU_GROUPS].map(([group,fields]) => `<details><summary>${group} details</summary><div class="fields">${fields.map(field => picker(field, true)).join("")}</div></details>`).join("")}</div>`;
     const select = (key, label, options, fallback) => `<label>${label}<select data-key="${key}">${options.map(([value, text]) => `<option value="${value}"${String(this.config?.[key] ?? fallback) === value ? " selected" : ""}>${text}</option>`).join("")}</select></label>`;
     this.querySelector(".editor").insertAdjacentHTML("afterbegin", [
       select("display_mode", "Display mode", [["auto", "Auto (legacy visibility)"], ["compact", "Compact"], ["detailed", "Detailed"]], "auto"),
       select("flow_style", "Flow style", [["hub", "Centered energy hub"], ["minimal", "Minimal power distribution"], ["horizontal", "Horizontal lanes"]], "hub"),
       select("show_mode_toggle", "Show device-local mode toggle", [["false", "Off"], ["true", "On"]], false),
+      select("show_tou_chart", "Show Time of use target chart", [["false", "Off"], ["true", "On"]], false),
     ].join(""));
     this.querySelector('[data-key="view_mode"]').parentElement.firstChild.textContent = "Legacy Auto visibility";
     this.querySelectorAll("ha-entity-picker").forEach(picker => { picker.hass = this._hass; });
@@ -786,7 +913,7 @@ class SolarBridgeCardEditor extends HTMLElement {
     }));
     this.querySelectorAll("select").forEach(field => field.addEventListener("change", event => {
       const { dataset: { key }, value } = event.currentTarget;
-      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: { ...this.config, [key]: key === "show_mode_toggle" ? value === "true" : value } }, bubbles: true, composed: true }));
+      this.dispatchEvent(new CustomEvent("config-changed", { detail: { config: { ...this.config, [key]: ["show_mode_toggle", "show_tou_chart"].includes(key) ? value === "true" : value } }, bubbles: true, composed: true }));
     }));
   }
 }

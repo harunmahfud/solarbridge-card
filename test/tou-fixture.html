@@ -1,0 +1,135 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body{margin:0;padding:18px;background:#f2f4f5}solarbridge-card{width:100%;max-width:760px}#result,solarbridge-card-editor{display:none}
+</style>
+<solarbridge-card></solarbridge-card><solarbridge-card-editor></solarbridge-card-editor><pre id="result">pending</pre>
+<script type="module">
+  import "../solarbridge-card.js";
+  const params = new URLSearchParams(location.search), dark = params.get("theme") === "dark";
+  document.documentElement.style.colorScheme = dark ? "dark" : "light";
+  const theme = dark ? { "--ha-card-background":"#1c1c1c", "--primary-text-color":"#f1f1f1", "--secondary-text-color":"#b8b8b8", "--primary-color":"#4a9df0" } : { "--ha-card-background":"#fff", "--primary-text-color":"#212121", "--secondary-text-color":"#5f6368", "--primary-color":"#1976d2" };
+  for (const [key, value] of Object.entries(theme)) document.documentElement.style.setProperty(key, value);
+  if (dark) document.body.style.background = "#111";
+  let clock = Date.parse("2026-11-25T16:20:00Z");
+  Date.now = () => clock;
+  const card = document.querySelector("solarbridge-card"), editor = document.querySelector("solarbridge-card-editor");
+  card.style.width = `${params.get("width") || 760}px`;
+  let config = { title:"SolarBridge", display_mode:"detailed", flow_style:"minimal", battery_mode:"sensor.mode", battery_type:"sensor.type", battery_soc:"sensor.soc", battery_voltage:"sensor.voltage", pv_power:"sensor.pv", grid_power:"sensor.grid", load_power:"sensor.load", battery_power:"sensor.battery", pv1_power:"sensor.pv", running_status:"sensor.running", grid_status:"sensor.grid_status" };
+  let states = Object.fromEntries(Object.entries({ mode:"Capacity", type:"Lithium", soc:"74", voltage:"51.2", pv:"3200", grid:"-900", load:"900", battery:"-1400", running:"Normal", grid_status:"On-grid" }).map(([key,state]) => [`sensor.${key}`,{state}]));
+  for (const [key, unit] of Object.entries({soc:"%",voltage:"V",pv:"W",grid:"W",load:"W",battery:"W"})) states[`sensor.${key}`].attributes={unit_of_measurement:unit};
+  const starts = ["17:00", "00:00", "21:00", "05:00", "13:00", "09:00"], targets = [50,30,30,60,80,75];
+  for (let id=1; id<=6; id++) {
+    for (const [key, state] of Object.entries({ [`tou_time_${id}`]:starts[id-1], [`tou_soc_${id}`]:`${targets[id-1]}`, [`tou_voltage_${id}`]:`${49+id/2}`, [`tou_power_${id}`]:"3000", [`tou_${id}_grid_charge`]: id===4?"Enabled":"Disabled", [`tou_${id}_generator_charge`]: id===1?"Enabled":"Disabled" })) {
+      config[key] = `sensor.${key}`; states[`sensor.${key}`] = {state};
+    }
+  }
+  const originalConfig = {...config}, originalStates = {...states};
+  const requests = [], tests = {};
+  let zone = "UTC", writes = 0;
+  const hass = () => ({ states:{...states}, config:{time_zone:zone}, locale:{language:"en-GB"}, themes:{darkMode:dark}, callService:() => writes++, callApi:async (_,path) => {
+    requests.push(path);
+    const voltage = path.includes("sensor.voltage");
+    return [[[0,45],[6,35],[8,null],[9,62],[12,79]].map(([hour,value]) => ({ state:value==null?"unavailable":String(voltage?49+value/30:value), last_changed:new Date(Date.parse("2026-11-25T00:00:00Z")+hour*3600000).toISOString() }))];
+  } });
+  const wait = (ms=90) => new Promise(resolve => setTimeout(resolve,ms));
+  const update = async (overrides={}, options={}) => {
+    states = {...states,...Object.fromEntries(Object.entries(overrides).map(([key,state]) => [`sensor.${key}`,{state}]))};
+    config = {...config,...options}; card.setConfig(config); card.hass = hass(); await wait();
+  };
+  await update();
+  const root = card.shadowRoot, section = root.querySelector(".tou"), all = root.querySelector(".tou-all");
+  const now = () => root.querySelector(".tou-card.current"), next = () => root.querySelector(".tou-card:not(.current)");
+  const row = id => root.querySelector(`[data-schedule="${id}"]`);
+  const chart = root.querySelector(".tou-chart"), svg = chart.querySelector("svg"), tooltip = chart.querySelector(".chart-tooltip");
+  tests.defaultChartOff = chart.hidden && !section.hidden;
+  tests.schedulesReplaceTechnicalGroups = !root.querySelector('.detail-tile[data-group^="Time of use"]') && root.querySelectorAll(".tou tbody tr").length === 6;
+  tests.chronologicalNotNumericOrder = [...root.querySelectorAll(".tou tbody tr")].map(row=>row.dataset.schedule).join(",")==="2,4,6,5,1,3";
+  tests.nowNextAndRange = now().textContent.includes("Now · Schedule 5") && now().querySelector("strong").textContent==="80 %" && now().textContent.includes("13:00–17:00 · Until 17:00") && next().textContent.includes("Next · Schedule 1") && next().textContent.includes("0 h 40 min") && row(5).getAttribute("aria-current")==="time";
+  all.open = true;
+  await update({}, {show_tou_chart:true});
+  tests.disclosureSurvivesUpdates = all.open;
+  tests.phonePowerColumn = getComputedStyle(row(1).querySelector(".tou-power")).display === (card.clientWidth<=480?"none":"table-cell");
+  tests.noOverflow = section.scrollWidth <= section.clientWidth && root.querySelector("ha-card").scrollWidth <= card.clientWidth;
+  const targetPath = () => chart.querySelector(".tou-target").getAttribute("d"), actualPath = () => chart.querySelector(".trend-line:not(.tou-target)").getAttribute("d");
+  tests.targetStepsActualGaps = !targetPath().includes("C") && (targetPath().match(/ H /g)||[]).length===7 && (actualPath().match(/M /g)||[]).length===2 && chart.querySelector(".tou-now line");
+  svg.dispatchEvent(new KeyboardEvent("keydown",{key:"Home"}));
+  tests.sharedTooltip = tooltip.querySelector("b").textContent==="45.00 %" && tooltip.textContent.includes("Target 30 %") && !root.querySelector(".soc .chart-tooltip").checkVisibility();
+  // Inspect 07:00, between a valid sample and the explicitly unavailable one.
+  const point = new DOMPoint(48+2+(svg.viewBox.baseVal.width-64)*7/24,60).matrixTransform(svg.getScreenCTM());
+  svg.dispatchEvent(new PointerEvent("pointermove",{clientX:point.x,clientY:point.y,pointerType:"mouse"}));
+  tests.gapDoesNotShowTooltip = tooltip.hidden;
+  card.style.width = "300px"; await update();
+  tests.chartResizes = svg.viewBox.baseVal.width===svg.getBoundingClientRect().width && svg.getBoundingClientRect().height===200;
+  card.style.width = `${params.get("width") || 760}px`; await update();
+  tests.themeUsesExistingTokens = getComputedStyle(chart.querySelector(".tou-target")).stroke===getComputedStyle(now()).borderTopColor;
+  await update({mode:"Voltage"});
+  tests.modeSwitchClearsInspection = tooltip.hidden && chart.querySelector(".chart-point").hasAttribute("hidden") && !chart.querySelector(".chart-axes").textContent.includes("%");
+  svg.dispatchEvent(new KeyboardEvent("keydown",{key:"Home"}));
+  tests.voltageMode = now().querySelector("strong").textContent==="51.5 V" && row(5).querySelector(".tou-value button").dataset.key==="tou_voltage_5" && tooltip.querySelector("b").textContent==="50.50 V" && requests.at(-1).includes("sensor.voltage");
+  await update({tou_voltage_5:"unavailable"});
+  tests.noStaleTarget = now().querySelector("strong").textContent==="—" && row(5).querySelector(".tou-value").textContent==="—" && (targetPath().match(/M /g)||[]).length===2;
+  await update({tou_voltage_5:"51.5"},{tou_voltage_5:undefined});
+  tests.missingVoltageTargetDoesNotUseSoc = now().querySelector("strong").textContent==="—" && row(5).querySelector(".tou-value").textContent==="—";
+  states["sensor.tou_voltage_5"]={state:"51500",attributes:{unit_of_measurement:"mV"}};
+  states["sensor.voltage"]={state:"51200",attributes:{unit_of_measurement:"mV"}};
+  await update({}, {tou_voltage_5:"sensor.tou_voltage_5"});
+  tests.mismatchedUnitsNotMislabeled = now().querySelector("strong").textContent==="—" && actualPath()==="";
+  await update({tou_voltage_5:"51.5",voltage:"51.2"});
+  states["sensor.tou_voltage_5"]={state:"51.5",attributes:{unit_of_measurement:"V"}};
+  states["sensor.voltage"]={state:"51.2",attributes:{unit_of_measurement:"V"}};
+  await update();
+  tests.voltageRestoresAfterUnitCorrection = now().querySelector("strong").textContent==="51.5 V" && actualPath().includes("C");
+  await update({mode:"unavailable"});
+  tests.unknownModeNoGuessedTarget = now().querySelector("strong").textContent==="—" && chart.hidden;
+  await update({mode:"Capacity"}, {battery_soc:undefined});
+  tests.fallbackNotMixedWithTargets = !root.querySelector(".soc").hidden && root.querySelector(".soc .trend").getAttribute("aria-label").includes("voltage") && actualPath()==="" && targetPath().includes("H");
+  await update({}, {battery_soc:"sensor.soc",display_mode:"compact"});
+  tests.compactChartFree = !svg.checkVisibility() && !root.querySelector(".soc .trend").checkVisibility();
+  await update({}, {display_mode:"detailed"});
+  // Exact schedule boundary and the final-to-first wrap, without using index order.
+  clock = Date.parse("2026-11-25T17:00:00Z"); await update();
+  tests.exactBoundary = now().textContent.includes("Now · Schedule 1") && next().textContent.includes("Next · Schedule 3");
+  clock = Date.parse("2026-11-25T23:40:00Z"); await update();
+  tests.overnight = now().textContent.includes("Now · Schedule 3") && now().textContent.includes("Until 00:00 tomorrow") && next().textContent.includes("Next · Schedule 2") && next().textContent.includes("0 h 20 min");
+  zone = "Asia/Jakarta"; clock = Date.parse("2026-11-25T22:10:00Z"); await update();
+  tests.haTimezone = now().textContent.includes("Now · Schedule 4") && next().textContent.includes("3 h 50 min");
+  zone = "America/New_York"; clock = Date.parse("2026-03-08T06:30:00Z"); await update();
+  tests.springDstCountdown = now().textContent.includes("Now · Schedule 2") && next().textContent.includes("2 h 30 min");
+  clock = Date.parse("2026-11-01T05:30:00Z"); await update();
+  tests.fallDstCountdown = now().textContent.includes("Now · Schedule 2") && next().textContent.includes("4 h 30 min");
+  clock = Date.parse("2026-11-02T04:30:00Z"); await update();
+  tests.longDayFetchIncludesMidnight = requests.at(-1).startsWith("history/period/2026-11-01T04:00:00.000Z?");
+  zone = undefined; clock = Date.parse("2026-11-25T16:20:00Z"); await update();
+  tests.browserTimezoneFallback = now().querySelector("strong").textContent !== "—";
+  zone = "UTC";
+  await update({tou_time_1:"25:00"});
+  tests.invalidStartNotStale = !root.querySelector(".tou tr[aria-current]") && now().querySelector("strong").textContent==="—" && targetPath()==="";
+  await update({tou_time_1:"13:00"});
+  tests.duplicateStartNotGuessed = now().querySelector("strong").textContent==="—";
+  await update({tou_time_1:"unavailable"});
+  tests.unavailableTime = row(1).querySelector(".tou-time").textContent==="—" && now().querySelector("strong").textContent==="—";
+  const only = Object.fromEntries(Object.entries(originalConfig).filter(([key])=>!key.startsWith("tou_") || key.endsWith("_1") || /^tou_1_/.test(key)));
+  config = {...only,show_tou_chart:true}; await update({tou_time_1:"17:00"});
+  tests.singleConfiguredSchedule = root.querySelectorAll(".tou tbody tr").length===1 && now().textContent.includes("Now · Schedule 1") && next().textContent.includes("Next · Schedule 1");
+  config=Object.fromEntries(Object.entries(config).filter(([key])=>!key.startsWith("tou_"))); await update();
+  tests.noSchedulesHidesSection = section.hidden && !svg.checkVisibility();
+  config = {...originalConfig,show_tou_chart:true}; states = {...originalStates};
+  clock = Date.parse("2026-11-25T16:59:59.800Z"); await update();
+  clock = Date.parse("2026-11-25T17:00:00.020Z"); await wait(350);
+  tests.clockAdvancesWithoutHass = now().textContent.includes("Now · Schedule 1");
+  editor.setConfig(originalConfig); editor.hass = hass();
+  const toggle = editor.querySelector('[data-key="show_tou_chart"]');
+  let emitted;
+  editor.addEventListener("config-changed",event=>{emitted=event.detail.config;editor.setConfig(emitted);});
+  tests.editorDefaultOff = toggle.value==="false";
+  toggle.value="true";toggle.dispatchEvent(new Event("change"));
+  tests.editorBooleanAndEcho = emitted.show_tou_chart===true && toggle===editor.querySelector('[data-key="show_tou_chart"]') && toggle.value==="true" && editor.textContent.includes("Schedule 6 details");
+  tests.readOnly = writes===0;
+  clock = Date.parse("2026-11-25T16:20:00Z");
+  config={...originalConfig,show_tou_chart:params.get("chart")!=="off"};states={...originalStates};
+  await update(params.get("mode")==="voltage"?{mode:"Voltage"}:params.get("mode")==="unavailable"?{tou_soc_5:"unavailable",tou_time_1:"unavailable"}:{});
+  all.open=params.get("all")!=="closed";
+  document.querySelector("#result").textContent=JSON.stringify({tests:Object.fromEntries(Object.entries(tests).map(([key,value])=>[key,!!value]))});
+</script>

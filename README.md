@@ -28,6 +28,7 @@ not a measured zero. HA theme changes apply live.
 | `display_mode` | `auto` | `auto` preserves legacy visibility: overview keeps the live overview, configured battery level/history and daily totals; `view_mode: system` also exposes configured technical groups. `compact` shows essential live readings and configured daily totals, without charts or technical groups. `detailed` adds the configured 24-hour battery chart, expandable technical groups and a separate signed inverter power reading. |
 | `flow_style` | `hub` | `hub` is a centered five-node diagram with curved connectors. `minimal` uses four live tiles and an incoming-power bar. `horizontal` uses four directional lanes. Every style works with every display mode. |
 | `show_mode_toggle` | `false` | Enables Compact/Detailed buttons. The initial selection follows `display_mode` (Auto follows legacy `view_mode`). A runtime selection is remembered in localStorage for the same entity bindings in this browser/device; it never changes YAML or the pinned flow style. With the toggle off, stored choices are ignored. If storage is blocked, switching still works for the current card instance. |
+| `show_tou_chart` | `false` | Adds the Time of use target-over-the-day chart in Detailed (including legacy Auto/System). Uses SOC targets/history in Capacity mode and voltage targets/history in Voltage mode. Compact stays chart-free. |
 
 Existing YAML needs no migration. `view_mode: overview` and `view_mode: system`
 remain supported in Auto. No entity keys were renamed or made required.
@@ -35,7 +36,7 @@ Use **compact + minimal** for daily checks, or **detailed + hub** to investigate
 Omitting `flow_style` always uses Hub, including when switching modes.
 
 Detailed has expandable groups for Solar strings, Inverter, Battery, Grid and
-load, AUX, Lifetime energy, and six optional Time of use slots. Independent
+load, AUX and Lifetime energy, plus a separate optional Time of use section. Independent
 configured rows remain visible even with partial configuration. Missing/unknown/unavailable configured entities are
 shown as `—`; unconfigured rows and empty groups are hidden. Above 480 px,
 groups start open and stack in two masonry columns without fixed-height rows.
@@ -162,10 +163,24 @@ battery_low_soc: sensor.solarbridge_battery_low_soc
 
 ### Live inverter settings and Weather Shield
 
-Optional **Time of use 1–6** detail groups show each slot's start time, power
-target, mode-appropriate voltage/SOC target, and grid/generator charging flags.
-Select their entities in the editor, or configure fields as below (repeat for
-slots 2–6 using your actual entity IDs):
+The optional **Time of use** section replaces the six technical groups with
+**Now** and **Next** cards. Each entry is named **Schedule 1–6**; the YAML keys
+are unchanged. Cards show time ranges, when the current schedule ends or the
+next starts, power targets, charging flags and the battery-mode target:
+`tou_soc_N` (%) in Capacity mode, `tou_voltage_N` (V) in Voltage mode.
+**All schedules** expands a chronological table, highlighting the current row.
+At 480 px or narrower, the table omits power; it remains visible on the cards.
+Only schedules with at least one configured field appear.
+
+Starts are `HH:MM` (or `HH:MM:SS`) in Home Assistant's configured time zone,
+falling back to browser local time. The final start wraps to the first the next
+day. Current/next and countdowns refresh at minute/schedule boundaries without
+requiring an entity change. If a configured schedule's start is unavailable,
+invalid or duplicated, active-schedule identification and the target trace are
+withheld rather than guessing; the table still shows configured live readings.
+
+Select entities under **Schedule 1–6** in the editor, or configure fields as
+below (repeat for schedules 2–6 using your actual entity IDs):
 
 ```yaml
 tou_time_1: sensor.solarbridge_time_of_use_time_1
@@ -175,6 +190,22 @@ tou_soc_1: sensor.solarbridge_time_of_use_soc_1
 tou_1_grid_charge: sensor.solarbridge_tou_1_grid_charge
 tou_1_generator_charge: sensor.solarbridge_tou_1_generator_charge
 ```
+
+Set `show_tou_chart: true` (or enable **Show Time of use target chart** in the
+editor) for a dashed target step line from local midnight to midnight, solid
+actual battery history, and a now marker. It reuses the existing HA history
+request, sizing, gap handling, and mouse/touch/keyboard inspection; tooltips
+include the target at the inspected sample's time. DST calendar days retain
+their actual duration. No new statistics or history series are requested.
+
+Voltage mode uses **V** throughout cards, table, target steps, actual history,
+axes and tooltips, switching cleanly with battery operation mode (not chemistry).
+Missing/unavailable mode-specific targets show `—` and leave target-line gaps;
+they never fall back to the other mode's targets. Actual overlays require the
+matching battery sensor: a voltage-only fallback from the main history chart
+is never compared against SOC targets, or vice versa. Use V, %, and W sensors;
+explicitly incompatible units are omitted rather than converted or mislabeled.
+Sensors without unit metadata are assumed to use those documented units.
 
 These are inverter settings, not measured power or battery levels. Select
 `battery_mode` explicitly to retain mode detection even while battery readings
@@ -195,7 +226,7 @@ not infer one. Check the Deye Cloud app for Weather Shield status and commands.
 
 The card reads numeric entity states; it does not derive a power balance or integrate power into energy. Entity unit attributes are not converted, so configure power sensors reporting **W**, daily energy sensors reporting **kWh**, and battery SOC reporting **%**.
 
-System detail values are even more literal: each row displays the selected
+Technical-group values are even more literal: each row displays the selected
 entity's raw state string followed by its Home Assistant
 `unit_of_measurement`. It performs no rounding or parsing. In particular,
 `pv_power` is not calculated from `pv1_power` and `pv2_power`; choose the
