@@ -102,17 +102,17 @@ value; the card never silently adds PV1 and PV2.
 
 ## Time-of-use settings (included in the 92 supported entities)
 
-These optional fields appear in Time of use 1–6 detail groups and in the visual
+These optional fields appear as Schedule 1–6 in the Time of use section and visual
 editor. They display live HA states, not a separately cached schedule. Voltage
 targets appear only in Voltage mode; SOC targets appear only in Capacity mode.
 
 | SolarBridge profile keys | Card fields | Presentation |
 | --- | --- | --- |
-| `tou_time_1`, `tou_time_2`, `tou_time_3`, `tou_time_4`, `tou_time_5`, `tou_time_6` | Same keys | Slot start times |
+| `tou_time_1`, `tou_time_2`, `tou_time_3`, `tou_time_4`, `tou_time_5`, `tou_time_6` | Same keys | Schedule start times |
 | `tou_power_1`, `tou_power_2`, `tou_power_3`, `tou_power_4`, `tou_power_5`, `tou_power_6` | Same keys | Power targets (not measurements) |
 | `tou_soc_1`, `tou_soc_2`, `tou_soc_3`, `tou_soc_4`, `tou_soc_5`, `tou_soc_6` | Same keys | Capacity-mode SOC targets |
 | `tou_voltage_1`, `tou_voltage_2`, `tou_voltage_3`, `tou_voltage_4`, `tou_voltage_5`, `tou_voltage_6` | Same keys | Voltage-mode voltage targets |
-| `tou_1_grid_charge`, `tou_1_generator_charge`, `tou_2_grid_charge`, `tou_2_generator_charge`, `tou_3_grid_charge`, `tou_3_generator_charge`, `tou_4_grid_charge`, `tou_4_generator_charge`, `tou_5_grid_charge`, `tou_5_generator_charge`, `tou_6_grid_charge`, `tou_6_generator_charge` | Same keys | Grid/generator charging flags for each slot |
+| `tou_1_grid_charge`, `tou_1_generator_charge`, `tou_2_grid_charge`, `tou_2_generator_charge`, `tou_3_grid_charge`, `tou_3_generator_charge`, `tou_4_grid_charge`, `tou_4_generator_charge`, `tou_5_grid_charge`, `tou_5_generator_charge`, `tou_6_grid_charge`, `tou_6_generator_charge` | Same keys | Grid/generator charging flags for each schedule |
 
 ## Deliberately excluded entities (2)
 

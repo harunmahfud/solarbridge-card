@@ -423,29 +423,32 @@
       card.setConfig({ ...touConfig, display_mode: "detailed" });
       card.hass = touHass();
       await waitForUpdate();
-      semantics.touVoltage = slots.every(slot => !row(`tou_voltage_${slot}`).hidden
-        && row(`tou_voltage_${slot}`).querySelector("dd").textContent === "51.25 V"
-        && row(`tou_soc_${slot}`).hidden && !row(`tou_time_${slot}`).hidden);
+      const touCell = (slot, name) => {
+        const cell = root.querySelector(`.tou [data-schedule="${slot}"] .tou-${name}`);
+        return cell.querySelector("button") || cell;
+      };
+      semantics.touVoltage = slots.every(slot => touCell(slot, "value").textContent === "51.25 V"
+        && touCell(slot, "value").dataset.key === `tou_voltage_${slot}` && touCell(slot, "time").textContent.includes(":17"));
       const externalSettings = Object.fromEntries(slots.flatMap(slot => [
         [`sensor.tou_voltage_${slot}`, { state: "56.75", attributes: { unit_of_measurement: "V" } }],
         [`sensor.tou_${slot}_grid_charge`, { state: "Enabled" }],
       ]));
       card.hass = touHass({ ...externalSettings, "sensor.shutdown_v": { state: "46.37", attributes: { unit_of_measurement: "V" } } });
       await waitForUpdate();
-      semantics.externalTouUpdates = slots.every(slot => row(`tou_voltage_${slot}`).querySelector("dd").textContent === "56.75 V"
-        && row(`tou_${slot}_grid_charge`).querySelector("dd").textContent === "Enabled")
+      semantics.externalTouUpdates = slots.every(slot => touCell(slot, "value").textContent === "56.75 V"
+        && touCell(slot, "charging").textContent.includes("Grid on"))
         && row("battery_shutdown_voltage").querySelector("dd").textContent === "46.37 V";
-      row("tou_voltage_6").click();
+      touCell(6, "value").click();
       semantics.touMoreInfo = openedEntities.at(-1) === "sensor.tou_voltage_6";
       card.hass = touHass({ "sensor.mode": { state: "Capacity" } });
       await waitForUpdate();
-      semantics.touCapacity = slots.every(slot => row(`tou_voltage_${slot}`).hidden && !row(`tou_soc_${slot}`).hidden
-        && row(`tou_soc_${slot}`).querySelector("dd").textContent === "83 %");
+      semantics.touCapacity = slots.every(slot => touCell(slot, "value").dataset.key === `tou_soc_${slot}`
+        && touCell(slot, "value").textContent === "83 %");
       card.hass = touHass(Object.fromEntries(Object.keys(touStates).map(entityId => [entityId, { state: "unavailable" }])));
       await waitForUpdate();
-      semantics.touUnavailable = slots.every(slot => row(`tou_voltage_${slot}`).hidden && row(`tou_soc_${slot}`).hidden
-        && row(`tou_time_${slot}`).querySelector("dd").textContent === "—"
-        && row(`tou_${slot}_grid_charge`).querySelector("dd").textContent === "—");
+      semantics.touUnavailable = slots.every(slot => touCell(slot, "value").textContent === "—"
+        && touCell(slot, "time").textContent === "—"
+        && touCell(slot, "charging").textContent.includes("Grid —"));
       semantics.noServiceWrites = serviceCalls === 0;
 
       const dailyValuesRaw = summaries.map(item => item.querySelector("b").textContent).join(",") === "0.9 kWh,2.3 kWh,2.6 kWh,0.0 kWh" && statisticsCalls === 0;
@@ -825,8 +828,8 @@
         await waitForUpdate();
       };
       const initialGroupBounds = detailGroups().map(group => group.getBoundingClientRect());
-      redesign.detailsOnlyConfigured = detailGroups().length === 7
-        && [...detailRoot.querySelectorAll(".detail-tile")].filter(button => !button.hidden).length === 7
+      redesign.detailsOnlyConfigured = detailGroups().length === 6
+        && [...detailRoot.querySelectorAll(".detail-tile")].filter(button => !button.hidden).length === 6
         && tile("AUX").querySelector(".tile-count").textContent === "1 reading"
         && tile("AUX").querySelector("b").textContent === "—";
       redesign.detailsDesktopMasonryOrPhoneTiles = hostWidth <= 480
@@ -837,8 +840,8 @@
             return !previous || Math.abs(box.top - previous.bottom - 8) < 1;
           });
       redesign.detailsUsefulSummaryValues = [...tile("Inverter").querySelectorAll("b")].map(value => value.textContent).join(",") === "Normal,39.4 °C"
-        && [...tile("Time of use 1").querySelectorAll("b")].map(value => value.textContent).join(",") === "03:17,50.12 V"
-        && tile("Time of use 1").querySelector(".tile-count").textContent === "2 readings";
+        && [...tile("Solar strings").querySelectorAll("b")].map(value => value.textContent).join(",") === "484 W,0 W"
+        && tile("Solar strings").querySelector(".tile-count").textContent === "2 readings";
       await resizeDetails(640);
       detailRoot.querySelector('[data-expand="false"]').click();
       redesign.collapseAllSummaries = detailGroups().every(group => !group.open && shown(group.querySelector(".detail-brief")))
@@ -851,47 +854,47 @@
       redesign.collapsedSummaryUpdates = !detailRoot.querySelector('.metric-group[data-group="Inverter"]').open
         && detailRoot.querySelector('[data-group="Inverter"] .detail-brief').textContent.includes("41.2 °C");
       await resizeDetails(480);
-      tile("Time of use 1").click();
+      tile("AUX").click();
       await waitForUpdate();
       let popupCount = 0;
       detailCard.addEventListener("hass-more-info", () => popupCount++);
       detailCard.hass = { ...detailHass, states: { ...detailHass.states, "sensor.mode": { state: "Capacity" } } };
       await waitForUpdate();
-      redesign.phoneSelectionAndModeUpdate = tile("Time of use 1").getAttribute("aria-expanded") === "true"
-        && [...tile("Time of use 1").querySelectorAll("b")].map(value => value.textContent).join(",") === "03:17,81 %"
-        && detailGroups().filter(shown).length === 1 && detailGroups().find(shown).dataset.group === "Time of use 1"
-        && detailRoot.querySelector(".detail-panel-title").getBoundingClientRect().top >= tile("Time of use 1").getBoundingClientRect().bottom;
-      detailRoot.querySelector('[data-key="tou_soc_1"]').click();
+      redesign.phoneSelectionAndModeUpdate = tile("AUX").getAttribute("aria-expanded") === "true"
+        && tile("AUX").querySelector("b").textContent === "—"
+        && detailGroups().filter(shown).length === 1 && detailGroups().find(shown).dataset.group === "AUX"
+        && detailRoot.querySelector(".detail-panel-title").getBoundingClientRect().top >= tile("AUX").getBoundingClientRect().bottom;
+      detailRoot.querySelector('[data-key="aux_power"]').click();
       redesign.phoneReadingsStillOpenMoreInfo = popupCount === 1;
       await resizeDetails(481);
       redesign.desktopChoiceSurvivesPhoneLayout = !detailRoot.querySelector('.metric-group[data-group="Inverter"]').open
-        && detailGroups().filter(group => group.open).length === 6 && !shown(tile("Time of use 1"));
+        && detailGroups().filter(group => group.open).length === 5 && !shown(tile("AUX"));
       detailCard.remove();
       detailCard = createDetailCard(480);
       await waitForUpdate();
       detailRoot = detailCard.shadowRoot;
-      redesign.phoneSelectionSurvivesRefresh = tile("Time of use 1").getAttribute("aria-expanded") === "true" && detailGroups().filter(shown).length === 1;
+      redesign.phoneSelectionSurvivesRefresh = tile("AUX").getAttribute("aria-expanded") === "true" && detailGroups().filter(shown).length === 1;
       for (const display_mode of ["compact", "detailed"]) {
         detailCard.setConfig({ ...detailConfig, display_mode, title: "Edited card" });
         detailCard.hass = { ...detailHass };
         await waitForUpdate();
       }
-      redesign.phoneSelectionSurvivesConfigAndHass = tile("Time of use 1").getAttribute("aria-expanded") === "true";
+      redesign.phoneSelectionSurvivesConfigAndHass = tile("AUX").getAttribute("aria-expanded") === "true";
       const partialConfig = { ...detailConfig };
-      for (const key of ["tou_time_1", "tou_voltage_1", "tou_soc_1"]) delete partialConfig[key];
+      delete partialConfig.aux_power;
       detailCard.setConfig(partialConfig);
       await waitForUpdate();
-      redesign.removedGroupHasNoStalePanel = tile("Time of use 1").hidden && detailGroups().filter(shown).length === 0 && detailRoot.querySelector(".detail-panel-title").hidden;
+      redesign.removedGroupHasNoStalePanel = tile("AUX").hidden && detailGroups().filter(shown).length === 0 && detailRoot.querySelector(".detail-panel-title").hidden;
       detailCard.setConfig(detailConfig);
       await waitForUpdate();
-      tile("Time of use 1").click();
+      tile("AUX").click();
       await waitForUpdate();
       redesign.phoneRepeatTapClosesPanel = detailGroups().filter(shown).length === 0 && !detailRoot.querySelector(".detail-hint").hidden;
       detailCard.remove();
       detailCard = createDetailCard(640);
       await waitForUpdate();
       detailRoot = detailCard.shadowRoot;
-      redesign.desktopChoiceSurvivesRefresh = !detailRoot.querySelector('.metric-group[data-group="Inverter"]').open && detailGroups().filter(group => group.open).length === 6;
+      redesign.desktopChoiceSurvivesRefresh = !detailRoot.querySelector('.metric-group[data-group="Inverter"]').open && detailGroups().filter(group => group.open).length === 5;
       await resizeDetails(480);
       redesign.phoneClosedChoiceSurvivesRefresh = detailGroups().filter(shown).length === 0;
       Storage.prototype.setItem = () => { throw new Error("Storage disabled"); };
@@ -909,8 +912,8 @@
       detailCard.remove();
       localStorage.removeItem("solarbridge-card:technical-details");
 
-      // Eleven groups: five main groups and all six TOU slots. Position the
-      // panel by visible rows, not by the unfiltered group index or tile side.
+      // Five main groups plus the separate TOU section. Position the panel by
+      // visible rows, not by the unfiltered group index or tile side.
       const inlineConfig = { ...detailConfig };
       delete inlineConfig.aux_power;
       for (let slot = 2; slot <= 6; slot++) {
@@ -935,7 +938,7 @@
           && (!tiles[rowEnd + 1] || Math.abs(tiles[rowEnd + 1].getBoundingClientRect().top - panel.bottom - 8) < 1)
           && detailGroups().filter(shown).length === 1 && detailGroups().find(shown).dataset.group === name;
       };
-      for (const name of ["Solar strings", "Inverter", "Battery", "Time of use 3", "Time of use 6"]) {
+      for (const name of ["Solar strings", "Inverter", "Battery", "Grid and load", "Lifetime energy"]) {
         tile(name).click();
         await waitForUpdate();
         redesign[`inlinePanel-${name}`] = belowSelectedRow(name);
