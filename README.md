@@ -37,9 +37,16 @@ Omitting `flow_style` always uses Hub, including when switching modes.
 Detailed has expandable groups for Solar strings, Inverter, Battery, Grid and
 load, AUX, Lifetime energy, and six optional Time of use slots. Independent
 configured rows remain visible even with partial configuration. Missing/unknown/unavailable configured entities are
-shown as `—`; unconfigured rows and empty groups are hidden. On narrow cards,
-groups start collapsed and stack in one column. On wider cards, the first three
-start expanded in two columns. Your expansion choices survive live updates.
+shown as `—`; unconfigured rows and empty groups are hidden. Above 480 px,
+groups start open and stack in two masonry columns without fixed-height rows.
+Use **Expand all** / **Collapse all**, or close individual groups to see short
+live summaries. At 480 px or narrower, two-column summary tiles show each
+group's key readings and reading count. Tap a tile to open its full readings
+below the tiles; tap it again to close them.
+Desktop expansion choices and the selected phone tile are remembered separately
+in localStorage, shared by cards in this browser/device. They survive refreshes,
+mode switches and live updates without changing YAML. With browser storage
+blocked, choices still work for the current card instance.
 Layout depends on the card's available width, not the dashboard window width.
 
 Minimal's incoming power is **solar generation + grid import + battery

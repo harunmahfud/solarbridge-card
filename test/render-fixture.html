@@ -132,9 +132,14 @@
       const details = root.querySelector(".details");
       const visibleDetailRows = [...root.querySelectorAll(".metric-row")].filter(row => !row.hidden);
       const detailColumns = new Set([...root.querySelectorAll(".metric-group")].filter(group => !group.hidden).map(group => Math.round(group.getBoundingClientRect().left))).size;
+      const initialTiles = [...root.querySelectorAll(".detail-tile")].filter(tile => !tile.hidden);
+      const initialDetailsLayout = hostWidth <= 480
+        ? new Set(initialTiles.map(tile => Math.round(tile.getBoundingClientRect().left))).size === 2
+          && root.querySelector(".detail-panel-title").hidden
+        : detailColumns === 2 && [...root.querySelectorAll(".metric-group")].filter(group => !group.hidden).every(group => group.open);
       const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
       const viewModeCorrect = systemView
-        ? !details.hidden && visibleDetailRows.length === 39 && detailColumns === (hostWidth <= 480 ? 1 : 2)
+        ? !details.hidden && visibleDetailRows.length === 39 && initialDetailsLayout
           && root.querySelector('.metric-row[data-key="inverter_voltage"] dd').textContent === "230.1 V"
           && root.querySelector('.metric-row[data-key="bms_current"] dd').textContent === "-1 A"
           && root.querySelector('.metric-row[data-key="bms_temperature"] dd').textContent === "32.1 °C"
@@ -287,7 +292,7 @@
         card.setConfig({ ...config, view_mode: systemView ? "overview" : "system" });
         await waitForUpdate();
         lifecycle.modeSwitchIdentity = animations.every((animation, index) => pulses[index].getAnimations()[0] === animation)
-          && details.hidden === systemView;
+          && details.hidden === (systemView || !root.querySelector(".metric-group:not([hidden])"));
 
         card._intersecting = false;
         card.syncAnimationPlayback();
@@ -550,13 +555,16 @@
       card.hass = { ...modeHass(captured), themes: { darkMode: dark } };
 
       card.setConfig({ ...modeConfig, display_mode: "detailed" });
+      await waitForUpdate();
       const batteryDetails = root.querySelector('.metric-group[data-group="Battery"]');
-      batteryDetails.open = false;
-      batteryDetails.querySelector("summary").click();
+      if (hostWidth <= 480) root.querySelector('.detail-tile[data-group="Battery"]').click();
+      else {
+        if (batteryDetails.open) batteryDetails.querySelector("summary").click();
+        batteryDetails.querySelector("summary").click();
+      }
       card.hass = modeHass(captured);
       await waitForUpdate();
       redesign.expandableDetailsKeepUserChoice = batteryDetails.open && row("battery_voltage").querySelector("dd").textContent === "50.88 V";
-      batteryDetails.open = hostWidth > 480;
 
       let historyRequest;
       card.setConfig({ ...modeConfig, display_mode: "detailed", battery_voltage: "sensor.gap_voltage" });
@@ -658,10 +666,7 @@
         await waitForUpdate();
         redesign[`historyHidden-${mode}`] = root.querySelector(".soc").hidden;
       }
-      const groupChoices = [...root.querySelectorAll(".metric-group")].map((group, index) => {
-        group.open = index % 2 === 0;
-        return group.open;
-      });
+      const groupChoices = [...root.querySelectorAll(".metric-group")].map(group => group.open);
       for (const display_mode of ["compact", "detailed"]) {
         card.setConfig({ ...voltageChartConfig, display_mode });
         card.hass = chartHass("Capacity");
@@ -778,6 +783,131 @@
         redesign[`historyTooltipClearsOnMissingSource-${unit}`] = tooltip.hidden && dot.hasAttribute("hidden");
         cold.remove();
       }
+
+      // The same configured readings power desktop masonry and the phone panel.
+      // Reconstructing the element simulates a refresh without keeping JS state.
+      localStorage.removeItem("solarbridge-card:technical-details");
+      const detailConfig = {
+        display_mode: "detailed", battery_mode: "sensor.mode", battery_voltage: "sensor.voltage",
+        pv1_power: "sensor.pv1", pv2_power: "sensor.pv2", running_status: "sensor.running",
+        ac_temperature: "sensor.temp", grid_status: "sensor.connected", grid_frequency: "sensor.hz",
+        aux_power: "sensor.aux", total_solar: "sensor.total", total_load: "sensor.total_load",
+        tou_time_1: "sensor.tou_time", tou_soc_1: "sensor.tou_soc", tou_voltage_1: "sensor.tou_voltage",
+      };
+      const detailHass = {
+        states: { ...modeStates, ...Object.fromEntries(Object.entries({
+          pv1: ["484", "W"], pv2: ["0", "W"], running: ["Normal"], temp: ["39.4", "°C"],
+          connected: ["On-grid"], hz: ["50.03", "Hz"], aux: ["unavailable", "W"],
+          total: ["1234.1", "kWh"], total_load: ["2232.1", "kWh"],
+          tou_time: ["03:17"], tou_soc: ["81", "%"], tou_voltage: ["50.12", "V"],
+        }).map(([key, [state, unit_of_measurement]]) => [`sensor.${key}`, { state, attributes: { unit_of_measurement } }])) },
+        callApi: async () => [[]],
+      };
+      const createDetailCard = (width = hostWidth) => {
+        const element = document.createElement("solarbridge-card");
+        element.style.width = `${width}px`;
+        element.setConfig(detailConfig);
+        element.hass = detailHass;
+        document.body.append(element);
+        return element;
+      };
+      let detailCard = createDetailCard();
+      await waitForUpdate();
+      let detailRoot = detailCard.shadowRoot;
+      const detailGroups = () => [...detailRoot.querySelectorAll(".metric-group")].filter(group => !group.hidden);
+      const tile = name => detailRoot.querySelector(`.detail-tile[data-group="${name}"]`);
+      const shown = element => element.checkVisibility();
+      const resizeDetails = async width => {
+        detailCard.style.width = `${width}px`;
+        // Dump-DOM virtual time does not reliably deliver ResizeObserver frames.
+        // A config update exercises the same render at the new container width.
+        detailCard.setConfig(detailConfig);
+        await waitForUpdate();
+      };
+      const initialGroupBounds = detailGroups().map(group => group.getBoundingClientRect());
+      redesign.detailsOnlyConfigured = detailGroups().length === 7
+        && [...detailRoot.querySelectorAll(".detail-tile")].filter(button => !button.hidden).length === 7
+        && tile("AUX").querySelector(".tile-count").textContent === "1 reading"
+        && tile("AUX").querySelector("b").textContent === "—";
+      redesign.detailsDesktopMasonryOrPhoneTiles = hostWidth <= 480
+        ? detailGroups().every(group => !shown(group)) && new Set([...detailRoot.querySelectorAll(".detail-tile")].filter(button => !button.hidden).map(button => button.offsetLeft)).size === 2
+        : detailGroups().every(group => group.open) && new Set(initialGroupBounds.map(box => box.left)).size === 2
+          && initialGroupBounds.every((box, index) => {
+            const previous = initialGroupBounds.slice(0, index).filter(other => Math.abs(other.left - box.left) < 1).at(-1);
+            return !previous || Math.abs(box.top - previous.bottom - 8) < 1;
+          });
+      redesign.detailsUsefulSummaryValues = [...tile("Inverter").querySelectorAll("b")].map(value => value.textContent).join(",") === "Normal,39.4 °C"
+        && [...tile("Time of use 1").querySelectorAll("b")].map(value => value.textContent).join(",") === "03:17,50.12 V"
+        && tile("Time of use 1").querySelector(".tile-count").textContent === "2 readings";
+      await resizeDetails(640);
+      detailRoot.querySelector('[data-expand="false"]').click();
+      redesign.collapseAllSummaries = detailGroups().every(group => !group.open && shown(group.querySelector(".detail-brief")))
+        && detailRoot.querySelector('[data-group="Inverter"] .detail-brief').textContent === "Running status: Normal · AC temperature: 39.4 °C";
+      detailRoot.querySelector('[data-expand="true"]').click();
+      redesign.expandAllGroups = detailGroups().every(group => group.open);
+      detailRoot.querySelector('.metric-group[data-group="Inverter"] summary').click();
+      detailCard.hass = { ...detailHass, states: { ...detailHass.states, "sensor.temp": { state: "41.2", attributes: { unit_of_measurement: "°C" } } } };
+      await waitForUpdate();
+      redesign.collapsedSummaryUpdates = !detailRoot.querySelector('.metric-group[data-group="Inverter"]').open
+        && detailRoot.querySelector('[data-group="Inverter"] .detail-brief').textContent.includes("41.2 °C");
+      await resizeDetails(480);
+      tile("Time of use 1").click();
+      await waitForUpdate();
+      let popupCount = 0;
+      detailCard.addEventListener("hass-more-info", () => popupCount++);
+      detailCard.hass = { ...detailHass, states: { ...detailHass.states, "sensor.mode": { state: "Capacity" } } };
+      await waitForUpdate();
+      redesign.phoneSelectionAndModeUpdate = tile("Time of use 1").getAttribute("aria-expanded") === "true"
+        && [...tile("Time of use 1").querySelectorAll("b")].map(value => value.textContent).join(",") === "03:17,81 %"
+        && detailGroups().filter(shown).length === 1 && detailGroups().find(shown).dataset.group === "Time of use 1"
+        && detailRoot.querySelector(".detail-panel-title").getBoundingClientRect().top >= detailRoot.querySelector(".detail-tiles").getBoundingClientRect().bottom;
+      detailRoot.querySelector('[data-key="tou_soc_1"]').click();
+      redesign.phoneReadingsStillOpenMoreInfo = popupCount === 1;
+      await resizeDetails(481);
+      redesign.desktopChoiceSurvivesPhoneLayout = !detailRoot.querySelector('.metric-group[data-group="Inverter"]').open
+        && detailGroups().filter(group => group.open).length === 6 && !shown(tile("Time of use 1"));
+      detailCard.remove();
+      detailCard = createDetailCard(480);
+      await waitForUpdate();
+      detailRoot = detailCard.shadowRoot;
+      redesign.phoneSelectionSurvivesRefresh = tile("Time of use 1").getAttribute("aria-expanded") === "true" && detailGroups().filter(shown).length === 1;
+      for (const display_mode of ["compact", "detailed"]) {
+        detailCard.setConfig({ ...detailConfig, display_mode, title: "Edited card" });
+        detailCard.hass = { ...detailHass };
+        await waitForUpdate();
+      }
+      redesign.phoneSelectionSurvivesConfigAndHass = tile("Time of use 1").getAttribute("aria-expanded") === "true";
+      const partialConfig = { ...detailConfig };
+      for (const key of ["tou_time_1", "tou_voltage_1", "tou_soc_1"]) delete partialConfig[key];
+      detailCard.setConfig(partialConfig);
+      await waitForUpdate();
+      redesign.removedGroupHasNoStalePanel = tile("Time of use 1").hidden && detailGroups().filter(shown).length === 0 && detailRoot.querySelector(".detail-panel-title").hidden;
+      detailCard.setConfig(detailConfig);
+      await waitForUpdate();
+      tile("Time of use 1").click();
+      await waitForUpdate();
+      redesign.phoneRepeatTapClosesPanel = detailGroups().filter(shown).length === 0 && !detailRoot.querySelector(".detail-hint").hidden;
+      detailCard.remove();
+      detailCard = createDetailCard(640);
+      await waitForUpdate();
+      detailRoot = detailCard.shadowRoot;
+      redesign.desktopChoiceSurvivesRefresh = !detailRoot.querySelector('.metric-group[data-group="Inverter"]').open && detailGroups().filter(group => group.open).length === 6;
+      await resizeDetails(480);
+      redesign.phoneClosedChoiceSurvivesRefresh = detailGroups().filter(shown).length === 0;
+      Storage.prototype.setItem = () => { throw new Error("Storage disabled"); };
+      tile("Battery").click();
+      detailCard.hass = { ...detailHass };
+      await waitForUpdate();
+      redesign.detailSelectionWorksWithoutStorage = tile("Battery").getAttribute("aria-expanded") === "true";
+      Storage.prototype.setItem = save;
+      detailCard.remove();
+      localStorage.setItem("solarbridge-card:technical-details", "{broken");
+      detailCard = createDetailCard(640);
+      await waitForUpdate();
+      detailRoot = detailCard.shadowRoot;
+      redesign.corruptDetailsStorageUsesDefaults = detailGroups().every(group => group.open);
+      detailCard.remove();
+      localStorage.removeItem("solarbridge-card:technical-details");
       openPicker.focus({ preventScroll: true });
 
       const batteryPreview = params.get("battery");

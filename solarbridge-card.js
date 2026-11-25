@@ -61,11 +61,11 @@ const DETAIL_GROUPS = [
   ["Solar strings", [
     ["pv1_power", "PV1 power"], ["pv1_voltage", "PV1 voltage"], ["pv1_current", "PV1 current"],
     ["pv2_power", "PV2 power"], ["pv2_voltage", "PV2 voltage"], ["pv2_current", "PV2 current"],
-  ]],
+  ], ["pv1_power", "pv2_power"]],
   ["Inverter", [
     ["inverter_voltage", "Inverter output voltage"], ["inverter_current", "Inverter current"],
     ["running_status", "Running status"], ["ac_temperature", "AC temperature"], ["dc_temperature", "DC temperature"],
-  ]],
+  ], ["running_status", "ac_temperature"]],
   ["Battery", [
     ["battery_mode", "Battery operation mode"], ["battery_type", "Battery type"],
     ["battery_voltage", "Battery voltage"], ["battery_current", "Battery current"],
@@ -75,28 +75,28 @@ const DETAIL_GROUPS = [
     ["battery_shutdown_voltage", "Shutdown voltage"], ["battery_restart_voltage", "Restart voltage"],
     ["battery_low_voltage", "Low battery voltage"], ["battery_shutdown_soc", "Shutdown SOC"],
     ["battery_restart_soc", "Restart SOC"], ["battery_low_soc", "Low battery SOC"],
-  ]],
+  ], ["battery_mode", "battery_voltage"]],
   ["Battery management system", [
     ["bms_charging_voltage", "BMS charging voltage"], ["bms_discharge_voltage", "BMS discharge voltage"],
     ["bms_charge_current_limit", "BMS charge current limit"], ["bms_discharge_current_limit", "BMS discharge current limit"],
     ["bms_soc", "BMS SOC"], ["bms_voltage", "BMS voltage"], ["bms_current", "BMS current"],
     ["bms_temperature", "BMS temperature"],
-  ]],
+  ], ["bms_soc", "bms_voltage"]],
   ["Grid and load", [
     ["grid_voltage", "Grid voltage"], ["grid_current", "Grid current"], ["grid_frequency", "Grid frequency"],
     ["grid_status", "Grid-connected status"], ["load_voltage", "Load voltage"], ["load_frequency", "Load frequency"],
     ["internal_ct_power", "Internal CT power"], ["external_ct_power", "External CT power"],
-  ]],
+  ], ["grid_status", "grid_frequency"]],
   ["AUX", [["aux_power", "AUX port power"]]],
   ["Lifetime energy", [
     ["total_solar", "Total production"], ["total_load", "Total load consumption"],
     ["total_grid_import", "Total energy bought"], ["total_grid_export", "Total energy sold"],
-  ]],
+  ], ["total_solar", "total_load"]],
   ...[1, 2, 3, 4, 5, 6].map(slot => [`Time of use ${slot}`, [
     [`tou_time_${slot}`, "Start time"], [`tou_power_${slot}`, "Power target"],
     [`tou_voltage_${slot}`, "Voltage target"], [`tou_soc_${slot}`, "SOC target"],
     [`tou_${slot}_grid_charge`, "Grid charging"], [`tou_${slot}_generator_charge`, "Generator charging"],
-  ]]),
+  ], [`tou_time_${slot}`, `tou_soc_${slot}`, `tou_voltage_${slot}`, `tou_power_${slot}`]]),
 ];
 const DETAIL_FIELDS = DETAIL_GROUPS.flatMap(([, fields]) => fields);
 const ENTITY_FIELDS = [...CORE_ENTITY_FIELDS, ...DETAIL_FIELDS];
@@ -292,8 +292,10 @@ class SolarBridgeCard extends HTMLElement {
       .soc{margin-top:18px;display:grid;grid-template-columns:80px 1fr;gap:12px;align-items:end;--node-color:var(--sb-battery)}.gauge{height:8px;background:var(--sb-border);border-radius:8px;overflow:hidden}.gauge i{display:block;height:100%;width:var(--soc);background:var(--sb-battery)}.trendbox small{display:block;font-size:12px;color:var(--sb-muted);margin-bottom:6px}.trend{display:block;width:100%;height:42px;overflow:visible}.trend-line{fill:none;stroke:var(--sb-battery);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}.trend-area{fill:color-mix(in srgb,var(--sb-battery) 9%,transparent)}.chart-axes{display:none;fill:var(--sb-muted);font:11px system-ui}.chart-axes line{stroke:var(--sb-border);stroke-width:.5}.chart-axes .threshold{stroke:var(--sb-muted);stroke-dasharray:3 3}.chart-empty{font-size:12px;fill:var(--sb-muted)}.system-mode .soc{display:block}.system-mode .soc>div:first-child{display:none}.system-mode .trend{height:auto;aspect-ratio:600/210}.system-mode .chart-axes{display:block}
       .trendbox{position:relative}.trend{touch-action:pan-y;cursor:crosshair;outline:none}.chart-point{fill:var(--sb-battery);stroke:var(--sb-surface);stroke-width:2;pointer-events:none}.chart-tooltip{position:absolute;z-index:1;display:grid;gap:1px;max-width:100%;padding:5px 8px;border:1px solid var(--sb-border);border-radius:6px;background:var(--sb-surface);color:var(--sb-text);box-shadow:0 2px 8px #0003;font-size:12px;line-height:1.25;pointer-events:none}.chart-tooltip span{font-size:11px;color:var(--sb-muted)}
       .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:18px}.summary div{min-width:0;padding:9px;border:1px solid var(--sb-border);border-radius:8px}.summary small,.summary b{display:block}.summary small{color:var(--sb-muted);font-size:12px}.summary b{font-size:17px;font-weight:600;margin-top:2px;white-space:nowrap}
-      .details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:18px}.metric-group{min-width:0;padding:8px 10px;border:1px solid var(--sb-border);border-radius:8px;align-self:start}.metric-group summary{cursor:pointer;font-size:13px;font-weight:600;min-height:28px;align-content:center}.metric-group dl{margin:8px 0 2px}.metric-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:13px}.metric-row dt{min-width:0;color:var(--sb-muted)}.metric-row dd{margin:0;text-align:right;overflow-wrap:anywhere;max-width:60%}.metric-row.unavailable dd{color:var(--sb-muted)}
-      @container(max-width:480px){ha-card{padding:12px}.summary,[data-style=minimal] .flow{grid-template-columns:repeat(2,minmax(0,1fr))}.details{grid-template-columns:1fr}.header{flex-wrap:wrap}.flow{max-width:360px}[data-style=hub] .flow{aspect-ratio:360/350}[data-style=hub] .node{width:72px;height:72px}[data-style=hub] .node.inverter{width:78px;height:78px}[data-style=hub] .node.battery{width:92px;height:80px}.inverter .icon,.inverter .icon svg{height:16px;width:16px}.inverter .flow-state{font-size:10px}.metric-row{padding:5px 0}.summary b{font-size:17px}}
+      .details{margin-top:18px}.details-toolbar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}.details h3{margin:0;font-size:13px;font-weight:600}.details-toolbar h3{color:var(--sb-muted)}.details-actions{display:flex;gap:6px}.details-actions button{font:inherit;font-size:12px;color:var(--sb-text);background:transparent;border:1px solid var(--sb-border);border-radius:6px;min-height:36px;padding:4px 10px;cursor:pointer}.detail-groups{columns:2;column-gap:8px}.metric-group{break-inside:avoid;min-width:0;padding:8px 10px;border:1px solid var(--sb-border);border-radius:8px;margin-bottom:8px}.metric-group summary{cursor:pointer;font-size:13px;font-weight:600;min-height:28px;align-content:center;overflow-wrap:anywhere}.detail-brief{display:block;font-size:12px;font-weight:400;color:var(--sb-muted);margin-top:3px}.metric-group[open] .detail-brief{display:none}.metric-group dl{margin:8px 0 2px}.metric-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:13px}.metric-row dt{min-width:0;color:var(--sb-muted)}.metric-row dd{margin:0;text-align:right;overflow-wrap:anywhere;max-width:60%}.metric-row.unavailable dd{color:var(--sb-muted)}
+      .detail-tiles,.detail-panel-title,.detail-hint{display:none}.detail-tile{font:inherit;color:var(--sb-text);background:transparent;border:1px solid var(--sb-border);border-radius:8px;padding:10px;text-align:left;cursor:pointer;min-width:0;overflow-wrap:anywhere}.detail-tile[aria-expanded=true]{border-color:var(--sb-accent);box-shadow:inset 0 0 0 1px var(--sb-accent)}.tile-name{display:block;font-size:12px;font-weight:600;margin-bottom:6px}.tile-value{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;font-size:12px;margin-top:3px}.tile-value small{color:var(--sb-muted);font-size:11px}.tile-value b{font-weight:500}.tile-value:nth-child(2) b{font-size:16px;font-weight:600}.tile-count{display:block;color:var(--sb-muted);font-size:11px;margin-top:8px}
+      @container(max-width:480px){.details-actions{display:none}.detail-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.detail-groups{columns:auto}.details .detail-panel-title{display:block;margin:12px 0 0;padding:10px 12px;border:1px solid var(--sb-accent);border-bottom:0;border-radius:8px 8px 0 0}.metric-group{display:none;margin:0;border-color:var(--sb-accent);border-top:0;border-radius:0 0 8px 8px;padding:0 12px 10px}.metric-group.selected{display:block}.metric-group summary{display:none}.metric-group dl{margin:0}.detail-hint{display:block;color:var(--sb-muted);font-size:12px;margin:10px 0 0}}
+      @container(max-width:480px){ha-card{padding:12px}.summary,[data-style=minimal] .flow{grid-template-columns:repeat(2,minmax(0,1fr))}.header{flex-wrap:wrap}.flow{max-width:360px}[data-style=hub] .flow{aspect-ratio:360/350}[data-style=hub] .node{width:72px;height:72px}[data-style=hub] .node.inverter{width:78px;height:78px}[data-style=hub] .node.battery{width:92px;height:80px}.inverter .icon,.inverter .icon svg{height:16px;width:16px}.inverter .flow-state{font-size:10px}.metric-row{padding:5px 0}.summary b{font-size:17px}}
       @container(max-width:320px){[data-style=hub] .flow{aspect-ratio:360/400}.node strong{font-size:13px}[data-style=hub] .node.battery{width:88px;height:80px}.flow-state{font-size:11px}[data-style=horizontal] .node,[data-style=horizontal] .lane-hub{padding:5px}[data-style=horizontal] .flow-state{font-size:10px}.summary b{font-size:15px}}
     </style><ha-card>
       <div class="header"><h2></h2><div class="mode-toggle" role="group" aria-label="Display mode" hidden><button type="button" data-mode="compact">Compact</button><button type="button" data-mode="detailed">Detailed</button></div></div><div class="flow">
@@ -310,7 +312,12 @@ class SolarBridgeCard extends HTMLElement {
       <div class="battery-indicator" hidden></div>
       <div class="summary">${[["daily_solar","Solar"],["daily_load","Load"],["daily_grid_import","Imported"],["daily_grid_export","Exported"]].map(([key,label]) => `<div class="entity-item" data-key="${key}"><small>${label} today</small><b></b></div>`).join("")}</div>
       <div class="soc entity-item" data-key="battery_soc"><div><b></b><div class="gauge"><i></i></div></div><div class="trendbox"><small>Battery SOC · 24h</small><svg class="trend" viewBox="0 0 280 42" tabindex="0" role="img" aria-describedby="history-tooltip" aria-label="24 hour battery SOC trend"><g class="chart-axes"></g><path class="trend-area"/><path class="trend-line"/><text class="chart-empty" x="50%" y="50%" text-anchor="middle" hidden>No history available</text><circle class="chart-point" r="4" hidden aria-hidden="true"/></svg><div class="chart-tooltip" id="history-tooltip" role="tooltip" aria-live="polite" hidden><b></b><span></span></div></div></div>
-      <section class="details" aria-label="System details" hidden>${DETAIL_GROUPS.map(([group, fields]) => `<details class="metric-group" data-group="${escapeHtml(group)}"${["Solar strings", "Inverter", "Battery"].includes(group) ? " open" : ""}><summary>${escapeHtml(group)}</summary><dl>${fields.map(([key,label]) => `<div class="metric-row entity-item" data-key="${key}" hidden><dt>${label}</dt><dd></dd></div>`).join("")}</dl></details>`).join("")}</section>
+      <section class="details" aria-label="System details" hidden>
+        <div class="details-toolbar"><h3>Technical details</h3><div class="details-actions"><button type="button" data-expand="true">Expand all</button><button type="button" data-expand="false">Collapse all</button></div></div>
+        <div class="detail-tiles">${DETAIL_GROUPS.map(([group]) => `<button type="button" class="detail-tile" data-group="${escapeHtml(group)}" aria-expanded="false" aria-controls="technical-readings" hidden><span class="tile-name">${escapeHtml(group)}</span><span class="tile-value"><small></small><b></b></span><span class="tile-value"><small></small><b></b></span><span class="tile-count"></span></button>`).join("")}</div>
+        <div class="detail-groups" id="technical-readings" role="region" aria-label="Technical readings"><h3 class="detail-panel-title" hidden></h3>${DETAIL_GROUPS.map(([group, fields]) => `<details class="metric-group" data-group="${escapeHtml(group)}" open><summary>${escapeHtml(group)}<small class="detail-brief"></small></summary><dl>${fields.map(([key,label]) => `<div class="metric-row entity-item" data-key="${key}" hidden><dt>${label}</dt><dd></dd></div>`).join("")}</dl></details>`).join("")}</div>
+        <p class="detail-hint">Choose a group to see all its readings.</p>
+      </section>
     </ha-card>`;
     if (!this._elements) this.cacheElements();
 
@@ -512,6 +519,7 @@ class SolarBridgeCard extends HTMLElement {
   updateDetails(text) {
     const mode = this.batteryMode;
     const thresholdUnit = mode === "Voltage" ? "voltage" : mode === "Capacity" ? "soc" : null;
+    const narrow = this.clientWidth <= 480;
     for (const group of this._elements.detailGroups) {
       let visible = 0;
       for (const { key, label, row, output } of group.rows) {
@@ -534,12 +542,48 @@ class SolarBridgeCard extends HTMLElement {
         output.setAttribute("aria-label", unavailable ? `${label}: Unavailable` : `${label}: ${value}`);
       }
       group.element.hidden = visible === 0;
+      group.tile.hidden = visible === 0;
+      const available = group.rows.filter(({ row }) => !row.hidden);
+      const preferred = group.priority.flatMap(key => available.filter(row => row.key === key));
+      const featured = [...new Set([...preferred, ...available])].slice(0, 2);
+      text(group.element.querySelector(".detail-brief"), featured.map(({ label, output }) => `${label}: ${output.textContent}`).join(" · "));
+      for (const [index, element] of [...group.tile.querySelectorAll(".tile-value")].entries()) {
+        const reading = featured[index];
+        element.hidden = !reading;
+        if (!reading) continue;
+        text(element.querySelector("small"), reading.label);
+        text(element.querySelector("b"), reading.output.textContent);
+      }
+      text(group.tile.querySelector(".tile-count"), `${visible} ${visible === 1 ? "reading" : "readings"}`);
+      const selected = visible > 0 && group.name === this._detailState.selected;
+      group.tile.setAttribute("aria-expanded", String(narrow && selected));
+      group.element.classList.toggle("selected", selected);
+      group.element.open = narrow ? selected : (this._detailState.open[group.name] ?? true);
     }
+    const selected = this._elements.detailGroups.find(group => !group.element.hidden && group.name === this._detailState.selected);
+    const title = this.shadowRoot.querySelector(".detail-panel-title");
+    title.parentElement.setAttribute("aria-label", narrow && selected ? selected.name : "Technical readings");
+    text(title, selected?.name || "");
+    title.hidden = !selected;
+    this.shadowRoot.querySelector(".detail-hint").hidden = !!selected;
+    this._elements.details.hidden = !this.detailed || !this._elements.detailGroups.some(group => !group.element.hidden);
+  }
+
+  saveDetailState() {
+    try { localStorage.setItem("solarbridge-card:technical-details", JSON.stringify(this._detailState)); }
+    catch { /* Preferences still work in memory when storage is unavailable. */ }
   }
 
   cacheElements() {
     const select = selector => this.shadowRoot.querySelector(selector);
-    if (this.clientWidth <= 480) this.shadowRoot.querySelectorAll(".metric-group").forEach(group => { group.open = false; });
+    this._detailState = { open: {}, selected: null };
+    try {
+      const saved = JSON.parse(localStorage.getItem("solarbridge-card:technical-details"));
+      for (const [name] of DETAIL_GROUPS) {
+        if (typeof saved?.open?.[name] === "boolean") this._detailState.open[name] = saved.open[name];
+        if (saved?.selected === name) this._detailState.selected = name;
+      }
+    } catch { /* Ignore missing, corrupt or blocked browser storage. */ }
     this._elements = {
       card: select("ha-card"), details: select(".details"), summary: select(".summary"), title: select("h2"),
       toggle: select(".mode-toggle"), distribution: select(".distribution"), batteryIndicator: select(".battery-indicator"),
@@ -555,15 +599,39 @@ class SolarBridgeCard extends HTMLElement {
       flowStates: Object.fromEntries(["pv", "inverter", "grid", "battery", "load"].map(key => [key, select(`.${key} .flow-state`)])),
       energy: Object.fromEntries(CORE_ENTITY_FIELDS.slice(6).map(([key]) => [key, select(`.summary [data-key="${key}"] b`)])),
       entityItems: [...this.shadowRoot.querySelectorAll(".entity-item")],
-      detailGroups: DETAIL_GROUPS.map(([group, fields]) => ({
+      detailGroups: DETAIL_GROUPS.map(([group, fields, priority = []]) => ({
         name: group,
+        priority,
         element: select(`.metric-group[data-group="${group}"]`),
+        tile: select(`.detail-tile[data-group="${group}"]`),
         rows: fields.map(([key, label]) => {
           const row = select(`.metric-row[data-key="${key}"]`);
           return { key, label, row, output: row.querySelector("dd") };
         }),
       })),
     };
+    for (const group of this._elements.detailGroups) {
+      group.element.querySelector("summary").addEventListener("click", event => {
+        event.preventDefault();
+        this._detailState.open[group.name] = !group.element.open;
+        group.element.open = this._detailState.open[group.name];
+        this.saveDetailState();
+      });
+      group.tile.addEventListener("click", () => {
+        this._detailState.selected = this._detailState.selected === group.name ? null : group.name;
+        this.saveDetailState();
+        this.scheduleRender();
+      });
+    }
+    select(".details-actions").addEventListener("click", event => {
+      const action = event.target.closest("button")?.dataset.expand;
+      if (!action) return;
+      for (const group of this._elements.detailGroups.filter(group => !group.element.hidden)) {
+        this._detailState.open[group.name] = action === "true";
+        group.element.open = action === "true";
+      }
+      this.saveDetailState();
+    });
     this._elements.values = {
       pv: this._elements.pv, inverter: this._elements.inverter, grid: this._elements.grid,
       batteryPower: this._elements.batteryPower, batterySoc: this._elements.batterySoc,
